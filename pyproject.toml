@@ -1,0 +1,60 @@
+[project]
+name = "ccbot"
+version = "0.2.0"
+description = "Telegram bot for monitoring Codex sessions via tmux"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "python-telegram-bot[rate-limiter]>=21.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "libtmux>=0.37.0",
+    "Pillow>=10.0.0",
+    "aiofiles>=24.0.0",
+    "telegramify-markdown>=0.5.0,<1.0.0",
+]
+
+[project.scripts]
+ccbot = "ccbot.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pyright>=1.1.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ccbot"]
+
+# Target Python 3.12
+[tool.black]
+target-version = ["py312"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests using real filesystem or external processes",
+]
+
+[tool.coverage.run]
+source = ["ccbot"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "logger\\.",
+]
