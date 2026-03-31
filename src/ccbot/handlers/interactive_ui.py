@@ -1,6 +1,6 @@
-"""Interactive UI handling for Claude Code prompts.
+"""Interactive UI handling for Codex prompts.
 
-Handles interactive terminal UIs displayed by Claude Code:
+Handles interactive terminal UIs displayed by Codex:
   - AskUserQuestion: Multi-choice question prompts
   - ExitPlanMode: Plan mode exit confirmation
   - Permission Prompt: Tool permission requests

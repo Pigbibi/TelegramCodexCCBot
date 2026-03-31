@@ -6,7 +6,9 @@ from pathlib import Path
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ALLOWED_USERS", "1")
 os.environ.setdefault("CCBOT_DIR", tempfile.mkdtemp(prefix="ccbot-test-config-"))
-os.environ.setdefault("CLAUDE_PROJECTS_PATH", tempfile.mkdtemp(prefix="ccbot-test-projects-"))
+os.environ.setdefault(
+    "CCBOT_CODEX_PROJECTS_PATH", tempfile.mkdtemp(prefix="ccbot-test-projects-")
+)
 
 from ccbot import bot
 
@@ -20,7 +22,10 @@ class BrandingStringTests(unittest.TestCase):
             "⚠ Only text, photo, and voice messages are supported. Stickers, video, and other media cannot be forwarded to Codex.",
         )
         self.assertEqual(bot.PHOTO_CONFIRMATION_MESSAGE, "📷 Image sent to Codex.")
-        self.assertEqual(bot.SESSION_STILL_RUNNING_MESSAGE, "The Codex session is still running in tmux.")
+        self.assertEqual(
+            bot.SESSION_STILL_RUNNING_MESSAGE,
+            "The Codex session is still running in tmux.",
+        )
         self.assertEqual(bot.HELP_COMMAND_DESCRIPTION, "↗ Show Codex help")
         self.assertEqual(bot.CC_COMMANDS["memory"], "↗ Edit AGENTS.md")
         self.assertEqual(bot.ESC_COMMAND_DESCRIPTION, "Send Escape to interrupt Codex")

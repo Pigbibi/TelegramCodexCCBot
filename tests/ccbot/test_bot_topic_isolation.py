@@ -1,4 +1,4 @@
-"""Regression tests for keeping Telegram topics isolated by Claude session."""
+"""Regression tests for keeping Telegram topics isolated by Codex session."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,7 +6,7 @@ import pytest
 
 from ccbot.handlers.callback_data import CB_DIR_CONFIRM, CB_SESSION_SELECT
 from ccbot.handlers.directory_browser import BROWSE_PATH_KEY, SESSIONS_KEY
-from ccbot.session import ClaudeSession
+from ccbot.session import CodexSession
 
 
 def _make_callback_update(data: str, thread_id: int = 42, user_id: int = 12345):
@@ -46,7 +46,7 @@ class TestSessionPickerIsolation:
             "_pending_thread_id": 42,
             "_pending_thread_text": "hello",
         }
-        active_session = ClaudeSession(
+        active_session = CodexSession(
             session_id="session-a",
             summary="Existing chat",
             message_count=12,
@@ -57,7 +57,9 @@ class TestSessionPickerIsolation:
             patch("ccbot.bot.is_user_allowed", return_value=True),
             patch("ccbot.bot._get_thread_id", return_value=42),
             patch("ccbot.bot.session_manager") as mock_sm,
-            patch("ccbot.bot._create_and_bind_window", new_callable=AsyncMock) as create,
+            patch(
+                "ccbot.bot._create_and_bind_window", new_callable=AsyncMock
+            ) as create,
             patch("ccbot.bot.build_session_picker") as build_picker,
             patch("ccbot.bot.safe_edit", new_callable=AsyncMock),
         ):
@@ -86,7 +88,7 @@ class TestSessionPickerIsolation:
         context = _make_context()
         context.user_data = {
             SESSIONS_KEY: [
-                ClaudeSession(
+                CodexSession(
                     session_id="session-a",
                     summary="Existing chat",
                     message_count=12,
@@ -101,7 +103,9 @@ class TestSessionPickerIsolation:
             patch("ccbot.bot.is_user_allowed", return_value=True),
             patch("ccbot.bot._get_thread_id", return_value=42),
             patch("ccbot.bot.session_manager") as mock_sm,
-            patch("ccbot.bot._create_and_bind_window", new_callable=AsyncMock) as create,
+            patch(
+                "ccbot.bot._create_and_bind_window", new_callable=AsyncMock
+            ) as create,
             patch("ccbot.bot.safe_edit", new_callable=AsyncMock) as safe_edit,
         ):
             mock_sm.has_bound_thread_for_session.return_value = True

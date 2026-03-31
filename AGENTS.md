@@ -1,7 +1,7 @@
 # AGENTS.md
 
 This repository is a Codex-adapted fork of CCBot.
-The CLI/package name stays `ccbot`, and a few `CLAUDE_*` env vars remain in place for compatibility with upstream configs.
+The CLI/package name stays `ccbot`.
 
 ## Common Commands
 

@@ -242,7 +242,7 @@ class TmuxManager:
         """
         if literal and enter:
             # Split into text + delay + Enter via libtmux.
-            # Claude Code's TUI sometimes interprets a rapid-fire Enter
+            # Codex's TUI sometimes interprets a rapid-fire Enter
             # (arriving in the same input batch as the text) as a newline
             # rather than submit.  A 500ms gap lets the TUI process the
             # text before receiving Enter.
@@ -283,7 +283,7 @@ class TmuxManager:
                     logger.error(f"Failed to send Enter to window {window_id}: {e}")
                     return False
 
-            # Claude Code's ! command mode: send "!" first so the TUI
+            # Codex's ! command mode: send "!" first so the TUI
             # switches to bash mode, wait 1s, then send the rest.
             if text.startswith("!"):
                 if not await asyncio.to_thread(_send_literal, "!"):
@@ -370,7 +370,7 @@ class TmuxManager:
         self,
         work_dir: str,
         window_name: str | None = None,
-        start_claude: bool = True,
+        start_codex: bool = True,
         resume_session_id: str | None = None,
         account_name: str | None = None,
     ) -> tuple[bool, str, str, str]:
@@ -379,7 +379,7 @@ class TmuxManager:
         Args:
             work_dir: Working directory for the new window
             window_name: Optional window name (defaults to directory name)
-            start_claude: Whether to start the configured Codex command
+            start_codex: Whether to start the configured Codex command
             resume_session_id: If set, append --resume <id> to the command
 
         Returns:
@@ -418,10 +418,10 @@ class TmuxManager:
                 window.set_window_option("allow-rename", "off")
 
                 # Start Codex if requested
-                if start_claude:
+                if start_codex:
                     pane = window.active_pane
                     if pane:
-                        cmd = config.claude_command
+                        cmd = config.codex_command
                         if resume_session_id:
                             cmd = f"{cmd} --resume {resume_session_id}"
                         if account_name:

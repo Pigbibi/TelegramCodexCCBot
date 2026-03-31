@@ -32,7 +32,7 @@ def convert_markdown_tables(text: str) -> str:
 
     Telegram has no table rendering. This converts each row into a card
     with **Header**: value pairs, separated by horizontal lines — similar
-    to how Claude Code renders tables in narrow terminals.
+    to how Codex renders tables in narrow terminals.
 
     Skips tables inside code blocks.
     """

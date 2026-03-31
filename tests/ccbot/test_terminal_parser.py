@@ -1,4 +1,4 @@
-"""Tests for terminal_parser — regex-based detection of Claude Code UI elements."""
+"""Tests for terminal_parser — regex-based detection of Codex UI elements."""
 
 import pytest
 

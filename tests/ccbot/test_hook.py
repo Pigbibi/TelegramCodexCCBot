@@ -1,4 +1,4 @@
-"""Tests for Claude Code session tracking hook."""
+"""Tests for Codex session tracking hook."""
 
 import io
 import json

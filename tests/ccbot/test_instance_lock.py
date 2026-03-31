@@ -7,7 +7,9 @@ from unittest.mock import patch
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ALLOWED_USERS", "1")
 os.environ.setdefault("CCBOT_DIR", tempfile.mkdtemp(prefix="ccbot-test-config-"))
-os.environ.setdefault("CLAUDE_PROJECTS_PATH", tempfile.mkdtemp(prefix="ccbot-test-projects-"))
+os.environ.setdefault(
+    "CCBOT_CODEX_PROJECTS_PATH", tempfile.mkdtemp(prefix="ccbot-test-projects-")
+)
 
 from ccbot.main import AlreadyRunningError, acquire_instance_lock
 
@@ -19,7 +21,9 @@ class InstanceLockTests(unittest.TestCase):
         handle = acquire_instance_lock(lock_path)
 
         self.assertTrue(lock_path.exists())
-        self.assertEqual(lock_path.read_text(encoding="utf-8").strip(), str(os.getpid()))
+        self.assertEqual(
+            lock_path.read_text(encoding="utf-8").strip(), str(os.getpid())
+        )
         handle.close()
 
     def test_acquire_instance_lock_raises_when_lock_is_unavailable(self) -> None:

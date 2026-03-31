@@ -148,10 +148,10 @@ def sample_pane_status_line():
 
 @pytest.fixture
 def sample_pane_settings():
-    """Realistic Claude Code /model picker as captured from tmux."""
+    """Realistic Codex /model picker as captured from tmux."""
     return (
         " Select model\n"
-        " Switch between Claude models. Applies to this session and future Claude Code sessions.\n"
+        " Switch between available models. Applies to this session and future Codex sessions.\n"
         "\n"
         "   1. Default (recommended)  Opus 4.6 · Most capable for complex work\n"
         " ❯ 2. Sonnet                 Sonnet 4.6 · Best for everyday tasks\n"

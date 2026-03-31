@@ -1,6 +1,6 @@
 """Tests for status_polling — Settings UI detection via the poller path.
 
-Simulates the user workflow: /model is sent to Claude Code, the Settings
+Simulates the user workflow: /model is sent to Codex, the Settings
 model picker renders in the terminal, and the status poller detects it
 on its next 1s tick.
 """

@@ -1,4 +1,4 @@
-"""Terminal output parser — detects Claude Code UI elements in pane text.
+"""Terminal output parser — detects Codex UI elements in pane text.
 
 Parses captured tmux pane content to detect:
   - Interactive UIs (AskUserQuestion, ExitPlanMode, Permission Prompt,
@@ -6,8 +6,8 @@ Parses captured tmux pane content to detect:
     delimiters.
   - Status line (spinner characters + working text) by scanning from bottom up.
 
-All Claude Code text patterns live here. To support a new UI type or
-a changed Claude Code version, edit UI_PATTERNS / STATUS_SPINNERS.
+All Codex text patterns live here. To support a new UI type or
+a changed Codex version, edit UI_PATTERNS / STATUS_SPINNERS.
 
 Key functions: is_interactive_ui(), extract_interactive_content(),
 parse_status_line(), strip_pane_chrome(), extract_bash_output().
@@ -34,7 +34,7 @@ class UIPattern:
     marks the end.  Both boundary lines are included in the extracted content.
 
     ``top`` and ``bottom`` are tuples of compiled regexes — any single match
-    is sufficient.  This accommodates wording changes across Claude Code
+    is sufficient.  This accommodates wording changes across Codex
     versions (e.g. a reworded confirmation prompt).
     """
 
@@ -195,17 +195,17 @@ def is_interactive_ui(pane_text: str) -> bool:
 
 # ── Status line parsing ─────────────────────────────────────────────────
 
-# Spinner characters Claude Code uses in its status line
+# Spinner characters Codex uses in its status line
 STATUS_SPINNERS = frozenset(["·", "✻", "✽", "✶", "✳", "✢"])
 
 
 def parse_status_line(pane_text: str) -> str | None:
-    """Extract the Claude Code status line from terminal output.
+    """Extract the Codex status line from terminal output.
 
     The status line (spinner + working text) appears immediately above
     the chrome separator (a full line of ``─`` characters).  We locate
     the separator first, then check the line just above it — this avoids
-    false positives from ``·`` bullets in Claude's regular output.
+    false positives from ``·`` bullets in Codex's regular output.
 
     Returns the text after the spinner, or None if no status line found.
     """
@@ -242,7 +242,7 @@ def parse_status_line(pane_text: str) -> str | None:
 
 
 def strip_pane_chrome(lines: list[str]) -> list[str]:
-    """Strip Claude Code's bottom chrome (prompt area + status bar).
+    """Strip Codex's bottom chrome (prompt area + status bar).
 
     The bottom of the pane looks like::
 
@@ -305,14 +305,14 @@ def extract_bash_output(pane_text: str, command: str) -> str | None:
 
 @dataclass
 class UsageInfo:
-    """Parsed output from Claude Code's /usage modal."""
+    """Parsed output from Codex's /usage modal."""
 
     raw_text: str  # Full captured pane text
     parsed_lines: list[str]  # Cleaned content lines from the modal
 
 
 def parse_usage_output(pane_text: str) -> UsageInfo | None:
-    """Extract usage information from Claude Code's /usage settings tab.
+    """Extract usage information from Codex's /usage settings tab.
 
     The /usage modal shows a Settings overlay with a "Usage" tab containing
     progress bars and reset times.  This parser looks for the Settings header

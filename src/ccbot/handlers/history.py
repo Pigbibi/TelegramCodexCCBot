@@ -1,6 +1,6 @@
 """Message history display with pagination.
 
-Provides history viewing functionality for Claude Code sessions:
+Provides history viewing functionality for Codex sessions:
   - _build_history_keyboard: Build inline keyboard for page navigation
   - send_history: Send or edit message history with pagination support
 

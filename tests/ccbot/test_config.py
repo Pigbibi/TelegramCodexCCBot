@@ -11,10 +11,9 @@ from ccbot.config import Config
 def _base_env(monkeypatch, tmp_path):
     # chdir to tmp_path so load_dotenv won't find the real .env in repo root
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CCBOT_CLAUDE_PROJECTS_PATH", raising=False)
-    monkeypatch.delenv("CLAUDE_PROJECTS_PATH", raising=False)
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("CLAUDE_COMMAND", raising=False)
+    monkeypatch.delenv("CCBOT_CODEX_PROJECTS_PATH", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CCBOT_CODEX_COMMAND", raising=False)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test:token")
     monkeypatch.setenv("ALLOWED_USERS", "12345")
     monkeypatch.setenv("CCBOT_DIR", str(tmp_path))
@@ -28,9 +27,9 @@ class TestConfigValid:
         assert cfg.allowed_users == {12345}
 
     def test_default_command_is_codex(self, monkeypatch):
-        monkeypatch.delenv("CLAUDE_COMMAND", raising=False)
+        monkeypatch.delenv("CCBOT_CODEX_COMMAND", raising=False)
         cfg = Config()
-        assert cfg.claude_command == "codex"
+        assert cfg.codex_command == "codex"
 
     def test_custom_tmux_session_name(self, monkeypatch):
         monkeypatch.setenv("TMUX_SESSION_NAME", "mysession")
@@ -70,35 +69,35 @@ class TestConfigMissingEnv:
 
 
 @pytest.mark.usefixtures("_base_env")
-class TestConfigClaudeProjectsPath:
-    def test_default_claude_projects_path(self, monkeypatch):
+class TestConfigCodexProjectsPath:
+    def test_default_codex_projects_path(self, monkeypatch):
         """Default path is ~/.codex when no env vars are set."""
         # Ensure no custom path env vars are set
-        monkeypatch.delenv("CCBOT_CLAUDE_PROJECTS_PATH", raising=False)
-        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("CCBOT_CODEX_PROJECTS_PATH", raising=False)
+        monkeypatch.delenv("CODEX_HOME", raising=False)
         cfg = Config()
-        assert cfg.claude_projects_path == Path.home() / ".codex"
+        assert cfg.codex_projects_path == Path.home() / ".codex"
 
-    def test_custom_claude_projects_path(self, monkeypatch):
-        """CCBOT_CLAUDE_PROJECTS_PATH overrides the default path."""
+    def test_custom_codex_projects_path(self, monkeypatch):
+        """CCBOT_CODEX_PROJECTS_PATH overrides the default path."""
         custom_path = "/custom/projects/path"
-        monkeypatch.setenv("CCBOT_CLAUDE_PROJECTS_PATH", custom_path)
+        monkeypatch.setenv("CCBOT_CODEX_PROJECTS_PATH", custom_path)
         cfg = Config()
-        assert cfg.claude_projects_path == Path(custom_path)
+        assert cfg.codex_projects_path == Path(custom_path)
 
-    def test_claude_config_dir_projects_path(self, monkeypatch):
-        """CLAUDE_CONFIG_DIR sets path to $CLAUDE_CONFIG_DIR/projects."""
-        custom_config_dir = "/custom/claude/config"
-        monkeypatch.setenv("CLAUDE_CONFIG_DIR", custom_config_dir)
+    def test_codex_home_sets_projects_path(self, monkeypatch):
+        """CODEX_HOME becomes the transcript root when no explicit override is set."""
+        custom_codex_home = "/custom/codex/home"
+        monkeypatch.setenv("CODEX_HOME", custom_codex_home)
         cfg = Config()
-        assert cfg.claude_projects_path == Path(custom_config_dir) / "projects"
+        assert cfg.codex_projects_path == Path(custom_codex_home)
 
     def test_ccbot_projects_path_takes_priority(self, monkeypatch):
-        """CCBOT_CLAUDE_PROJECTS_PATH takes priority over CLAUDE_CONFIG_DIR."""
-        monkeypatch.setenv("CCBOT_CLAUDE_PROJECTS_PATH", "/priority/path")
-        monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/lower/priority")
+        """CCBOT_CODEX_PROJECTS_PATH takes priority over CODEX_HOME."""
+        monkeypatch.setenv("CCBOT_CODEX_PROJECTS_PATH", "/priority/path")
+        monkeypatch.setenv("CODEX_HOME", "/lower/priority")
         cfg = Config()
-        assert cfg.claude_projects_path == Path("/priority/path")
+        assert cfg.codex_projects_path == Path("/priority/path")
 
 
 @pytest.mark.usefixtures("_base_env")

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrackedSession:
-    """State for a tracked Claude Code session."""
+    """State for a tracked Codex session."""
 
     session_id: str
     file_path: str  # Path to .jsonl file

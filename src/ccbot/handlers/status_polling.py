@@ -1,7 +1,7 @@
 """Terminal status line polling for thread-bound windows.
 
 Provides background polling of terminal status lines for all active users:
-  - Detects Claude Code status (working, waiting, etc.)
+  - Detects Codex status (working, waiting, etc.)
   - Detects interactive UIs (permission prompts) not triggered via JSONL
   - Updates status messages in Telegram
   - Polls thread_bindings (each topic = one window)

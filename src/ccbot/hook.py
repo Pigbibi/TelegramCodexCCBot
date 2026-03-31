@@ -1,8 +1,8 @@
-"""Hook subcommand for Claude Code session tracking.
+"""Hook subcommand for Codex session tracking.
 
-Called by Claude Code's SessionStart hook to maintain a window↔session
-mapping in <CCBOT_DIR>/session_map.json. Also provides `--install` to
-auto-configure the hook in ~/.claude/settings.json.
+Called by a SessionStart hook to maintain a window↔session mapping in
+<CCBOT_DIR>/session_map.json. Also provides `--install` to configure the
+legacy upstream hook file under ~/.claude/settings.json when needed.
 
 This module must NOT import config.py (which requires TELEGRAM_BOT_TOKEN),
 since hooks run inside tmux panes where bot env vars are not set.
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Validate session_id looks like a UUID
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
-_CLAUDE_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
+_LEGACY_HOOK_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
 
 # The hook command suffix for detection
 _HOOK_COMMAND_SUFFIX = "ccbot hook"
@@ -79,11 +79,11 @@ def _is_hook_installed(settings: dict) -> bool:
 
 
 def _install_hook() -> int:
-    """Install the ccbot hook into Claude's settings.json.
+    """Install the ccbot hook into the legacy upstream settings file.
 
     Returns 0 on success, 1 on error.
     """
-    settings_file = _CLAUDE_SETTINGS_FILE
+    settings_file = _LEGACY_HOOK_SETTINGS_FILE
     settings_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Read existing settings
@@ -132,7 +132,7 @@ def _install_hook() -> int:
 
 
 def hook_main() -> None:
-    """Process a Claude Code hook event from stdin, or install the hook."""
+    """Process a Codex hook event from stdin, or install the hook."""
     # Configure logging for the hook subprocess (main.py logging doesn't apply here)
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -142,12 +142,12 @@ def hook_main() -> None:
 
     parser = argparse.ArgumentParser(
         prog="ccbot hook",
-        description="Claude Code session tracking hook",
+        description="Codex session tracking hook",
     )
     parser.add_argument(
         "--install",
         action="store_true",
-        help="Install the hook into ~/.claude/settings.json",
+        help="Install the hook into the legacy ~/.claude/settings.json file",
     )
     # Parse only known args to avoid conflicts with stdin JSON
     args, _ = parser.parse_known_args(sys.argv[2:])

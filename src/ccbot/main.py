@@ -133,7 +133,7 @@ def main() -> None:
     from .tmux_manager import tmux_manager
 
     logger.info("Allowed users: %s", config.allowed_users)
-    logger.info("Claude projects path: %s", config.claude_projects_path)
+    logger.info("Codex transcript root: %s", config.codex_projects_path)
 
     # Ensure tmux session exists
     session = tmux_manager.get_or_create_session()

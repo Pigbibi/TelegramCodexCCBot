@@ -1,4 +1,4 @@
-"""Tests for forward_command_handler — command forwarding to Claude Code."""
+"""Tests for forward_command_handler — command forwarding to Codex."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 

@@ -27,7 +27,7 @@ In short: this is still CCBot, but adapted to how Codex is actually used day to 
 
 Compared with https://github.com/six-ddc/ccbot, this fork adds or changes the following:
 
-- **Codex-first defaults** — uses `codex` instead of Claude-specific defaults
+- **Codex-first defaults** — uses `codex` instead of the upstream legacy defaults
 - **Recursive Codex transcript discovery** — monitors modern Codex session logs under `~/.codex`
 - **Better Telegram delivery** — improved polling behavior, commentary forwarding, and notification handling
 - **Safer topic/session isolation** — prevents multiple Telegram topics from attaching to the same live session
@@ -87,7 +87,7 @@ uv sync
 ```ini
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
-CLAUDE_COMMAND=codex
+CCBOT_CODEX_COMMAND=codex
 CCBOT_SHOW_COMMENTARY_MESSAGES=true
 ```
 
@@ -104,8 +104,8 @@ CCBOT_SHOW_COMMENTARY_MESSAGES=true
 | --- | --- | --- |
 | `CCBOT_DIR` | `~/.ccbot` | Config and state directory |
 | `TMUX_SESSION_NAME` | `ccbot` | tmux session name used by the bot |
-| `CLAUDE_COMMAND` | `codex` | Command used when creating a new window |
-| `CCBOT_CLAUDE_PROJECTS_PATH` | `~/.codex` | Transcript root to scan |
+| `CCBOT_CODEX_COMMAND` | `codex` | Command used when creating a new window |
+| `CCBOT_CODEX_PROJECTS_PATH` | `~/.codex` | Transcript root to scan |
 | `MONITOR_POLL_INTERVAL` | `2.0` | Poll interval in seconds |
 | `CCBOT_SHOW_COMMENTARY_MESSAGES` | `false` | Forward Codex commentary/thinking messages |
 | `CCBOT_SHOW_HIDDEN_DIRS` | `false` | Show dot-directories in the directory picker |
@@ -119,7 +119,7 @@ Telegram formatting uses MarkdownV2 with plain-text fallback when needed.
 If Codex runs on a server where you do not want approval prompts in the terminal UI:
 
 ```ini
-CLAUDE_COMMAND=IS_SANDBOX=1 codex --dangerously-bypass-approvals-and-sandbox
+CCBOT_CODEX_COMMAND=IS_SANDBOX=1 codex --dangerously-bypass-approvals-and-sandbox
 ```
 
 ## Multi-account switching and failover

@@ -54,7 +54,7 @@ class SessionMonitor:
         state_file: Path | None = None,
     ) -> None:
         self.projects_path = (
-            projects_path if projects_path is not None else config.claude_projects_path
+            projects_path if projects_path is not None else config.codex_projects_path
         )
         self.poll_interval = (
             poll_interval if poll_interval is not None else config.monitor_poll_interval
@@ -157,7 +157,9 @@ class SessionMonitor:
                 continue
             if self._normalize_path(file_cwd) not in active_cwds:
                 continue
-            sessions.append(SessionInfo(session_id=jsonl_file.stem, file_path=jsonl_file))
+            sessions.append(
+                SessionInfo(session_id=jsonl_file.stem, file_path=jsonl_file)
+            )
 
         sessions.sort(
             key=lambda session: session.file_path.stat().st_mtime,
@@ -253,7 +255,8 @@ class SessionMonitor:
             return
 
         bound_window_ids = {
-            window_id for _user_id, _thread_id, window_id in session_manager.iter_thread_bindings()
+            window_id
+            for _user_id, _thread_id, window_id in session_manager.iter_thread_bindings()
         }
 
         candidate_windows = [

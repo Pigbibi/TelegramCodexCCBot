@@ -87,7 +87,7 @@ uv sync
 ```ini
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ALLOWED_USERS=your_telegram_user_id
-CLAUDE_COMMAND=codex
+CCBOT_CODEX_COMMAND=codex
 CCBOT_SHOW_COMMENTARY_MESSAGES=true
 ```
 
@@ -104,8 +104,8 @@ CCBOT_SHOW_COMMENTARY_MESSAGES=true
 | --- | --- | --- |
 | `CCBOT_DIR` | `~/.ccbot` | 配置和状态目录 |
 | `TMUX_SESSION_NAME` | `ccbot` | bot 使用的 tmux session 名称 |
-| `CLAUDE_COMMAND` | `codex` | 创建新窗口时运行的命令 |
-| `CCBOT_CLAUDE_PROJECTS_PATH` | `~/.codex` | transcript 扫描根目录 |
+| `CCBOT_CODEX_COMMAND` | `codex` | 创建新窗口时运行的命令 |
+| `CCBOT_CODEX_PROJECTS_PATH` | `~/.codex` | transcript 扫描根目录 |
 | `MONITOR_POLL_INTERVAL` | `2.0` | 轮询间隔，单位秒 |
 | `CCBOT_SHOW_COMMENTARY_MESSAGES` | `false` | 是否把 Codex commentary/thinking 转发到 Telegram |
 | `CCBOT_SHOW_HIDDEN_DIRS` | `false` | 目录浏览器里是否显示点目录 |
@@ -119,7 +119,7 @@ CCBOT_SHOW_COMMENTARY_MESSAGES=true
 如果你在服务器上跑 Codex，不希望在终端里停在审批提示：
 
 ```ini
-CLAUDE_COMMAND=IS_SANDBOX=1 codex --dangerously-bypass-approvals-and-sandbox
+CCBOT_CODEX_COMMAND=IS_SANDBOX=1 codex --dangerously-bypass-approvals-and-sandbox
 ```
 
 ## 多账号切换与额度失败转移

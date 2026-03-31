@@ -1,17 +1,17 @@
 """Telegram bot handlers — the main UI layer of CCBot.
 
 Registers all command/callback/message handlers and manages the bot lifecycle.
-Each Telegram topic maps 1:1 to a tmux window (Claude session).
+Each Telegram topic maps 1:1 to a tmux window (Codex session).
 
 Core responsibilities:
   - Command handlers: /start, /history, /screenshot, /esc, /kill, /unbind,
-    plus forwarding unknown /commands to Claude Code via tmux.
+    plus forwarding unknown /commands to Codex via tmux.
   - Callback query handler: directory browser, history pagination,
     interactive UI navigation, screenshot refresh.
   - Topic-based routing: each named topic binds to one tmux window.
     Unbound topics trigger the directory browser to create a new session.
   - Photo handling: photos sent by user are downloaded and forwarded
-    to Claude Code as file paths (photo_handler).
+    to Codex as file paths (photo_handler).
   - Voice handling: voice messages are transcribed via OpenAI API and
     forwarded as text (voice_handler).
   - Automatic cleanup: closing a topic kills the associated window
@@ -138,7 +138,7 @@ from .markdown_v2 import convert_markdown
 from .handlers.response_builder import build_response_parts
 from .handlers.status_polling import status_poll_loop
 from .screenshot import text_to_image
-from .session import ClaudeSession, session_manager
+from .session import CodexSession, session_manager
 from .session_monitor import NewMessage, SessionMonitor
 from .terminal_parser import extract_bash_output, is_interactive_ui
 from .tmux_manager import tmux_manager
@@ -264,8 +264,8 @@ def _get_thread_id(update: Update) -> int | None:
 
 
 def _filter_resumable_sessions(
-    sessions: list["ClaudeSession"],
-) -> list["ClaudeSession"]:
+    sessions: list["CodexSession"],
+) -> list["CodexSession"]:
     """Hide sessions that are already active in another Telegram topic."""
     return [
         session
@@ -359,7 +359,7 @@ async def screenshot_command(
 
 
 async def unbind_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Unbind this topic from its Claude session without killing the window."""
+    """Unbind this topic from its Codex session without killing the window."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         return
@@ -389,7 +389,7 @@ async def unbind_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def esc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send Escape key to interrupt Claude."""
+    """Send Escape key to interrupt Codex."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         return
@@ -414,7 +414,7 @@ async def esc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fetch Claude Code usage stats from TUI and send to Telegram."""
+    """Fetch Codex usage stats from TUI and send to Telegram."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         return
@@ -432,7 +432,7 @@ async def usage_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await safe_reply(update.message, f"Window '{wid}' no longer exists.")
         return
 
-    # Send /usage command to Claude Code TUI
+    # Send /usage command to Codex TUI
     await tmux_manager.send_keys(w.window_id, "/usage")
     # Wait for the modal to render
     await asyncio.sleep(2.0)
@@ -638,7 +638,7 @@ async def topic_edited_handler(
 async def forward_command_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Forward any non-bot command as a slash command to the active Claude Code session."""
+    """Forward any non-bot command as a slash command to the active Codex session."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         return
@@ -807,7 +807,7 @@ async def process_pending_topic_deletions(bot: Bot) -> None:
 
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle photos sent by the user: download and forward path to Claude Code."""
+    """Handle photos sent by the user: download and forward path to Codex."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         if update.message:
@@ -858,7 +858,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     file_path = _IMAGES_DIR / filename
     await tg_file.download_to_drive(file_path)
 
-    # Build the message to send to Claude Code
+    # Build the message to send to Codex
     caption = update.message.caption or ""
     if caption:
         text_to_send = f"{caption}\n\n(image attached: {file_path})"
@@ -889,7 +889,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle voice messages: transcribe via OpenAI and forward text to Claude Code."""
+    """Handle voice messages: transcribe via OpenAI and forward text to Codex."""
     user = update.effective_user
     if not user or not is_user_allowed(user.id):
         if update.message:
@@ -2206,7 +2206,7 @@ async def handle_new_message(msg: NewMessage, bot: Bot) -> None:
             queue = get_message_queue(user_id)
             if queue:
                 await queue.join()
-            # Wait briefly for Claude Code to render the question UI
+            # Wait briefly for Codex to render the question UI
             await asyncio.sleep(0.3)
             handled = await handle_interactive_ui(bot, user_id, wid, thread_id)
             if handled:
@@ -2230,7 +2230,10 @@ async def handle_new_message(msg: NewMessage, bot: Bot) -> None:
             await clear_interactive_msg(user_id, bot, thread_id)
 
         # Skip tool call notifications when CCBOT_SHOW_TOOL_CALLS=false
-        if not config.show_tool_calls and msg.content_type in ("tool_use", "tool_result"):
+        if not config.show_tool_calls and msg.content_type in (
+            "tool_use",
+            "tool_result",
+        ):
             continue
 
         parts = build_response_parts(
@@ -2394,14 +2397,14 @@ def create_bot() -> Application:
             topic_edited_handler,
         )
     )
-    # Forward any other /command to Claude Code
+    # Forward any other /command to Codex
     application.add_handler(MessageHandler(filters.COMMAND, forward_command_handler))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)
     )
-    # Photos: download and forward file path to Claude Code
+    # Photos: download and forward file path to Codex
     application.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-    # Voice: transcribe via OpenAI and forward text to Claude Code
+    # Voice: transcribe via OpenAI and forward text to Codex
     application.add_handler(MessageHandler(filters.VOICE, voice_handler))
     # Catch-all: non-text content (stickers, video, etc.)
     application.add_handler(

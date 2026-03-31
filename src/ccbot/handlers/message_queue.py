@@ -215,7 +215,7 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                         if task.task_type != "content":
                             # Status is ephemeral — safe to drop
                             continue
-                        # Content is actual Claude output — wait then send
+                        # Content is actual Codex output — wait then send
                         logger.debug(
                             "Flood controlled: waiting %.0fs for content (user %d)",
                             remaining,
@@ -471,7 +471,7 @@ async def _process_status_update_task(
             return
         else:
             # Same window, text changed - edit in place
-            # Send typing indicator when Claude is working
+            # Send typing indicator when Codex is working
             if "esc to interrupt" in status_text.lower():
                 try:
                     await bot.send_chat_action(
@@ -531,7 +531,7 @@ async def _do_send_status_message(
             await bot.delete_message(chat_id=chat_id, message_id=old[0])
         except Exception:
             pass
-    # Send typing indicator when Claude is working
+    # Send typing indicator when Codex is working
     if "esc to interrupt" in text.lower():
         try:
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)

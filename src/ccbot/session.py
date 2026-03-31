@@ -76,7 +76,7 @@ class WindowState:
 
 
 @dataclass
-class ClaudeSession:
+class CodexSession:
     """Information about a Codex session."""
 
     session_id: str
@@ -722,17 +722,17 @@ class SessionManager:
         if not session_id or not cwd:
             return None
         encoded_cwd = self._encode_cwd(cwd)
-        return config.claude_projects_path / encoded_cwd / f"{session_id}.jsonl"
+        return config.codex_projects_path / encoded_cwd / f"{session_id}.jsonl"
 
     async def _get_session_direct(
         self, session_id: str, cwd: str
-    ) -> ClaudeSession | None:
-        """Get a ClaudeSession directly from session_id and cwd (no scanning)."""
+    ) -> CodexSession | None:
+        """Get a CodexSession directly from session_id and cwd (no scanning)."""
         file_path = self._build_session_file_path(session_id, cwd)
 
         # Fallback: recursive search for Codex-style date-based session layout.
         if not file_path or not file_path.exists():
-            matches = list(config.claude_projects_path.rglob(f"{session_id}.jsonl"))
+            matches = list(config.codex_projects_path.rglob(f"{session_id}.jsonl"))
             if matches:
                 file_path = matches[0]
                 logger.debug("Found session via recursive search: %s", file_path)
@@ -770,7 +770,7 @@ class SessionManager:
         if not summary:
             summary = last_user_msg[:50] if last_user_msg else "Untitled"
 
-        return ClaudeSession(
+        return CodexSession(
             session_id=session_id,
             summary=summary,
             message_count=message_count,
@@ -779,7 +779,7 @@ class SessionManager:
 
     # --- Directory session listing ---
 
-    async def list_sessions_for_directory(self, cwd: str) -> list[ClaudeSession]:
+    async def list_sessions_for_directory(self, cwd: str) -> list[CodexSession]:
         """List existing Codex sessions for a directory from recursive logs."""
         try:
             target_cwd = str(Path(cwd).resolve())
@@ -789,14 +789,14 @@ class SessionManager:
         jsonl_files = sorted(
             (
                 path
-                for path in config.claude_projects_path.rglob("*.jsonl")
+                for path in config.codex_projects_path.rglob("*.jsonl")
                 if path.is_file() and path.stem != "sessions-index"
             ),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
 
-        sessions: list[ClaudeSession] = []
+        sessions: list[CodexSession] = []
         for f in jsonl_files:
             session_cwd = read_cwd_from_jsonl(f)
             if not session_cwd:
@@ -817,7 +817,7 @@ class SessionManager:
 
     # --- Window → Session resolution ---
 
-    async def resolve_session_for_window(self, window_id: str) -> ClaudeSession | None:
+    async def resolve_session_for_window(self, window_id: str) -> CodexSession | None:
         """Resolve a tmux window to the best matching Codex session.
 
         Uses persisted session_id + cwd to construct file path directly.
@@ -955,7 +955,9 @@ class SessionManager:
             if state.session_id:
                 duplicates_by_session.setdefault(state.session_id, []).append(window_id)
 
-        bound_window_ids = {window_id for _, _, window_id in self.iter_thread_bindings()}
+        bound_window_ids = {
+            window_id for _, _, window_id in self.iter_thread_bindings()
+        }
         cleared_windows: list[str] = []
 
         for session_id, window_ids in duplicates_by_session.items():
