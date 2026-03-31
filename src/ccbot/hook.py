@@ -1,8 +1,9 @@
 """Hook subcommand for Codex session tracking.
 
 Called by a SessionStart hook to maintain a window↔session mapping in
-<CCBOT_DIR>/session_map.json. Also provides `--install` to configure the
-legacy upstream hook file under ~/.claude/settings.json when needed.
+<CCBOT_DIR>/session_map.json. Also provides `--install` to enable Codex hooks
+in `~/.codex/config.toml` and register the SessionStart hook in
+`~/.codex/hooks.json`.
 
 This module must NOT import config.py (which requires TELEGRAM_BOT_TOKEN),
 since hooks run inside tmux panes where bot env vars are not set.
@@ -21,13 +22,21 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Validate session_id looks like a UUID
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_CONFIG_SECTION_RE = re.compile(r"^\s*\[(.+?)\]\s*$")
+_CODEX_HOOKS_FLAG_RE = re.compile(r"^\s*codex_hooks\s*=")
 
-_LEGACY_HOOK_SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
+_CODEX_DIR = Path.home() / ".codex"
+_CODEX_CONFIG_FILE = _CODEX_DIR / "config.toml"
+_CODEX_HOOKS_FILE = _CODEX_DIR / "hooks.json"
+_SESSION_START_MATCHER = "startup|resume"
+_HOOK_STATUS_MESSAGE = "Registering CCBot session"
+_HOOK_TIMEOUT_SECONDS = 5
 
 # The hook command suffix for detection
 _HOOK_COMMAND_SUFFIX = "ccbot hook"
@@ -57,7 +66,7 @@ def _find_ccbot_path() -> str:
 
 
 def _is_hook_installed(settings: dict) -> bool:
-    """Check if ccbot hook is already installed in the settings.
+    """Check if ccbot hook is already installed in hooks.json.
 
     Detects both 'ccbot hook' and full paths like '/path/to/ccbot hook'.
     """
@@ -78,56 +87,144 @@ def _is_hook_installed(settings: dict) -> bool:
     return False
 
 
+def _read_json_file(path: Path) -> dict[str, Any]:
+    """Read a JSON object from disk, returning {} when the file is absent."""
+    if not path.exists():
+        return {}
+
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a top-level JSON object")
+    return data
+
+
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON with a trailing newline for easier diffs."""
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+
+
+def _enable_codex_hooks_feature(config_file: Path) -> None:
+    """Ensure `[features] codex_hooks = true` exists in config.toml."""
+    if config_file.exists():
+        text = config_file.read_text()
+    else:
+        text = ""
+
+    lines = text.splitlines()
+
+    section_starts: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        match = _CONFIG_SECTION_RE.match(line)
+        if match:
+            section_starts.append((idx, match.group(1).strip()))
+
+    features_start = None
+    features_end = len(lines)
+    for pos, (idx, section_name) in enumerate(section_starts):
+        if section_name == "features":
+            features_start = idx
+            if pos + 1 < len(section_starts):
+                features_end = section_starts[pos + 1][0]
+            break
+
+    changed = False
+    if features_start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend(["[features]", "codex_hooks = true"])
+        changed = True
+    else:
+        for idx in range(features_start + 1, features_end):
+            if _CODEX_HOOKS_FLAG_RE.match(lines[idx]):
+                if lines[idx].strip() != "codex_hooks = true":
+                    lines[idx] = "codex_hooks = true"
+                    changed = True
+                break
+        else:
+            lines.insert(features_end, "codex_hooks = true")
+            changed = True
+
+    if changed or not config_file.exists():
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text("\n".join(lines).rstrip() + "\n")
+
+
 def _install_hook() -> int:
-    """Install the ccbot hook into the legacy upstream settings file.
+    """Install the ccbot hook into Codex's config.toml and hooks.json.
 
     Returns 0 on success, 1 on error.
     """
-    settings_file = _LEGACY_HOOK_SETTINGS_FILE
-    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file = _CODEX_CONFIG_FILE
+    hooks_file = _CODEX_HOOKS_FILE
 
-    # Read existing settings
-    settings: dict = {}
-    if settings_file.exists():
-        try:
-            settings = json.loads(settings_file.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error("Error reading %s: %s", settings_file, e)
-            print(f"Error reading {settings_file}: {e}", file=sys.stderr)
-            return 1
+    try:
+        _enable_codex_hooks_feature(config_file)
+    except (OSError, ValueError) as e:
+        logger.error("Error updating %s: %s", config_file, e)
+        print(f"Error updating {config_file}: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        settings = _read_json_file(hooks_file)
+    except (json.JSONDecodeError, OSError, ValueError) as e:
+        logger.error("Error reading %s: %s", hooks_file, e)
+        print(f"Error reading {hooks_file}: {e}", file=sys.stderr)
+        return 1
+
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        message = f"{hooks_file} has invalid 'hooks' shape"
+        logger.error(message)
+        print(message, file=sys.stderr)
+        return 1
+
+    session_start = hooks.setdefault("SessionStart", [])
+    if not isinstance(session_start, list):
+        message = f"{hooks_file} has invalid 'hooks.SessionStart' shape"
+        logger.error(message)
+        print(message, file=sys.stderr)
+        return 1
 
     # Check if already installed
     if _is_hook_installed(settings):
-        logger.info("Hook already installed in %s", settings_file)
-        print(f"Hook already installed in {settings_file}")
+        logger.info("Hook already installed in %s", hooks_file)
+        print(
+            f"Hook already installed in {hooks_file} (Codex hooks enabled in {config_file})"
+        )
         return 0
 
     # Find the full path to ccbot
     ccbot_path = _find_ccbot_path()
     hook_command = f"{ccbot_path} hook"
-    hook_config = {"type": "command", "command": hook_command, "timeout": 5}
+    hook_config = {
+        "type": "command",
+        "command": hook_command,
+        "statusMessage": _HOOK_STATUS_MESSAGE,
+        "timeout": _HOOK_TIMEOUT_SECONDS,
+    }
     logger.info("Installing hook command: %s", hook_command)
 
-    # Install the hook
-    if "hooks" not in settings:
-        settings["hooks"] = {}
-    if "SessionStart" not in settings["hooks"]:
-        settings["hooks"]["SessionStart"] = []
-
-    settings["hooks"]["SessionStart"].append({"hooks": [hook_config]})
+    session_start.append(
+        {
+            "matcher": _SESSION_START_MATCHER,
+            "hooks": [hook_config],
+        }
+    )
 
     # Write back
     try:
-        settings_file.write_text(
-            json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
-        )
+        hooks_file.parent.mkdir(parents=True, exist_ok=True)
+        _write_json_file(hooks_file, settings)
     except OSError as e:
-        logger.error("Error writing %s: %s", settings_file, e)
-        print(f"Error writing {settings_file}: {e}", file=sys.stderr)
+        logger.error("Error writing %s: %s", hooks_file, e)
+        print(f"Error writing {hooks_file}: {e}", file=sys.stderr)
         return 1
 
-    logger.info("Hook installed successfully in %s", settings_file)
-    print(f"Hook installed successfully in {settings_file}")
+    logger.info("Hook installed successfully in %s", hooks_file)
+    print(
+        "Hook installed successfully in "
+        f"{hooks_file} (Codex hooks enabled in {config_file})"
+    )
     return 0
 
 
@@ -147,7 +244,7 @@ def hook_main() -> None:
     parser.add_argument(
         "--install",
         action="store_true",
-        help="Install the hook into the legacy ~/.claude/settings.json file",
+        help="Enable Codex hooks and install the SessionStart hook in ~/.codex/",
     )
     # Parse only known args to avoid conflicts with stdin JSON
     args, _ = parser.parse_known_args(sys.argv[2:])

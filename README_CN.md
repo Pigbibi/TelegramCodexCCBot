@@ -155,6 +155,40 @@ codex login
 ccbot hook --install
 ```
 
+这个命令会在 `~/.codex/config.toml` 里启用 Codex hooks，并在
+`~/.codex/hooks.json` 里写入 `SessionStart` hook。
+
+等价的手动配置如下。
+
+`~/.codex/config.toml`
+
+```toml
+[features]
+codex_hooks = true
+```
+
+`~/.codex/hooks.json`
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "statusMessage": "Registering CCBot session",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 hook 会把窗口和 session 的映射写到 `$CCBOT_DIR/session_map.json`，这样清上下文或重启后，bot 仍然能更稳地把 tmux 窗口和 Codex session 对上。
 
 ## 使用方式

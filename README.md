@@ -155,7 +155,41 @@ If you want automatic session-to-window tracking via the CLI hook, install it wi
 ccbot hook --install
 ```
 
-Or add it manually to your hook configuration. The hook writes window/session mappings into `$CCBOT_DIR/session_map.json`, which helps the bot keep tmux windows associated with Codex sessions even after clears or restarts.
+This command enables Codex hooks in `~/.codex/config.toml` and writes a
+`SessionStart` hook to `~/.codex/hooks.json`.
+
+Manual equivalent:
+
+`~/.codex/config.toml`
+
+```toml
+[features]
+codex_hooks = true
+```
+
+`~/.codex/hooks.json`
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ccbot hook",
+            "statusMessage": "Registering CCBot session",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook writes window/session mappings into `$CCBOT_DIR/session_map.json`, which helps the bot keep tmux windows associated with Codex sessions even after clears or restarts.
 
 ## Usage
 

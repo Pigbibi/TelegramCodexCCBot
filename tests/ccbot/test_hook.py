@@ -3,10 +3,12 @@
 import io
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
-from ccbot.hook import _UUID_RE, _is_hook_installed, hook_main
+from ccbot import hook as hook_module
+from ccbot.hook import _UUID_RE, _install_hook, _is_hook_installed, hook_main
 
 
 class TestUuidRegex:
@@ -144,3 +146,135 @@ class TestHookMainValidation:
             },
         )
         assert not (tmp_path / "session_map.json").exists()
+
+
+class TestInstallHook:
+    def _patch_codex_paths(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> tuple[Path, Path]:
+        codex_dir = tmp_path / ".codex"
+        config_file = codex_dir / "config.toml"
+        hooks_file = codex_dir / "hooks.json"
+        monkeypatch.setattr(hook_module, "_CODEX_DIR", codex_dir)
+        monkeypatch.setattr(hook_module, "_CODEX_CONFIG_FILE", config_file)
+        monkeypatch.setattr(hook_module, "_CODEX_HOOKS_FILE", hooks_file)
+        return config_file, hooks_file
+
+    def test_install_writes_config_and_hooks_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        config_file, hooks_file = self._patch_codex_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            hook_module.shutil, "which", lambda _: "/usr/local/bin/ccbot"
+        )
+
+        assert _install_hook() == 0
+
+        assert (
+            config_file.read_text(encoding="utf-8")
+            == "[features]\ncodex_hooks = true\n"
+        )
+        hooks_payload = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert hooks_payload == {
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "startup|resume",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/usr/local/bin/ccbot hook",
+                                "statusMessage": "Registering CCBot session",
+                                "timeout": 5,
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+        assert "Hook installed successfully" in capsys.readouterr().out
+
+    def test_install_is_idempotent_and_enables_feature(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        config_file, hooks_file = self._patch_codex_paths(monkeypatch, tmp_path)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text("[features]\ncodex_hooks = false\n", encoding="utf-8")
+        hooks_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup|resume",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "ccbot hook",
+                                        "statusMessage": "Registering CCBot session",
+                                        "timeout": 5,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert _install_hook() == 0
+
+        assert (
+            config_file.read_text(encoding="utf-8")
+            == "[features]\ncodex_hooks = true\n"
+        )
+        hooks_payload = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert len(hooks_payload["hooks"]["SessionStart"]) == 1
+        assert "Hook already installed" in capsys.readouterr().out
+
+    def test_install_preserves_existing_hooks(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _, hooks_file = self._patch_codex_paths(monkeypatch, tmp_path)
+        monkeypatch.setattr(hook_module.shutil, "which", lambda _: "/opt/bin/ccbot")
+        hooks_file.parent.mkdir(parents=True, exist_ok=True)
+        hooks_file.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "other-tool hook",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert _install_hook() == 0
+
+        hooks_payload = json.loads(hooks_file.read_text(encoding="utf-8"))
+        assert len(hooks_payload["hooks"]["SessionStart"]) == 2
+        assert (
+            hooks_payload["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            == "other-tool hook"
+        )
+        assert (
+            hooks_payload["hooks"]["SessionStart"][1]["hooks"][0]["command"]
+            == "/opt/bin/ccbot hook"
+        )
