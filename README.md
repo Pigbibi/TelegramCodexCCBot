@@ -156,8 +156,10 @@ If you want automatic session-to-window tracking via the CLI hook, install it wi
 ccbot hook --install
 ```
 
-This command enables Codex hooks in `~/.codex/config.toml` and writes a
-`SessionStart` hook to `~/.codex/hooks.json`.
+This command enables Codex hooks in the active Codex home:
+
+- `$CODEX_HOME/config.toml` and `$CODEX_HOME/hooks.json` when `CODEX_HOME` is set
+- otherwise `~/.codex/config.toml` and `~/.codex/hooks.json`
 
 Manual equivalent:
 
@@ -239,6 +241,10 @@ Other unknown slash commands are forwarded to Codex as-is.
 4. Resume an existing session or create a new one
 5. CCBot creates a tmux window and forwards your pending message
 
+If the bot finds an existing **tracked** tmux window for that directory, it can
+offer that window for binding. Untracked windows are ignored on purpose so a
+topic does not attach to a terminal that has no reliable session mapping yet.
+
 ### Continue working
 
 After a topic is bound, just keep sending text or voice messages in that topic.
@@ -261,7 +267,11 @@ The monitor polls transcript files and can forward:
 - commentary / thinking output
 - tool use and tool results
 - local command output
+- public progress updates visible in tmux, such as `Explored`, `Ran`, `Searched`, and `Searching the web`
 - usage-limit exhaustion events
+
+Public progress updates come from text already visible in the terminal UI. They
+are not hidden model reasoning dumps.
 
 ## Running Codex manually in tmux
 
