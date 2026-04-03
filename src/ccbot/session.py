@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections.abc import Iterator
@@ -33,12 +34,52 @@ from typing import Any
 
 import aiofiles
 
+from .account_manager import ACCOUNT_HOME_DIR, list_account_homes
 from .config import config
 from .tmux_manager import tmux_manager
 from .transcript_parser import TranscriptParser
 from .utils import atomic_write_json, read_cwd_from_jsonl
 
 logger = logging.getLogger(__name__)
+
+_UUID_SUFFIX_RE = re.compile(
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+)
+
+
+def _iter_transcript_roots(preferred_account_name: str = "") -> list[Path]:
+    """Return transcript roots to search, preferring one account home when known."""
+    candidates: list[Path] = []
+    if preferred_account_name:
+        candidates.append(ACCOUNT_HOME_DIR / preferred_account_name)
+    candidates.append(config.codex_projects_path)
+    candidates.extend(list_account_homes())
+
+    seen: set[str] = set()
+    roots: list[Path] = []
+    for candidate in candidates:
+        path = candidate.expanduser()
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(path)
+    return roots
+
+
+def _canonical_session_id(session_id: str) -> str:
+    """Normalize bare UUID and rollout-prefixed ids to one comparable form."""
+    if not session_id:
+        return ""
+    match = _UUID_SUFFIX_RE.search(session_id)
+    if match:
+        return match.group(1)
+    return session_id
+
+
+def _session_ids_match(left: str, right: str) -> bool:
+    """Return whether two session ids refer to the same Codex session."""
+    return bool(left and right and _canonical_session_id(left) == _canonical_session_id(right))
 
 
 @dataclass
@@ -774,28 +815,59 @@ class SessionManager:
         """
         return re.sub(r"[^a-zA-Z0-9-]", "-", cwd)
 
-    def _build_session_file_path(self, session_id: str, cwd: str) -> Path | None:
+    def _build_session_file_path(
+        self,
+        session_id: str,
+        cwd: str,
+        *,
+        root: Path | None = None,
+    ) -> Path | None:
         """Build the direct file path for a session from session_id and cwd."""
         if not session_id or not cwd:
             return None
         encoded_cwd = self._encode_cwd(cwd)
-        return config.codex_projects_path / encoded_cwd / f"{session_id}.jsonl"
+        base_root = root if root is not None else config.codex_projects_path
+        return base_root / encoded_cwd / f"{session_id}.jsonl"
 
     async def _get_session_direct(
-        self, session_id: str, cwd: str
+        self,
+        session_id: str,
+        cwd: str,
+        *,
+        account_name: str = "",
     ) -> CodexSession | None:
         """Get a CodexSession directly from session_id and cwd (no scanning)."""
-        file_path = self._build_session_file_path(session_id, cwd)
+        file_path = None
+        for root in _iter_transcript_roots(account_name):
+            candidate = self._build_session_file_path(session_id, cwd, root=root)
+            if candidate and candidate.exists():
+                file_path = candidate
+                break
 
         # Fallback: recursive search for Codex-style date-based session layout.
         if not file_path or not file_path.exists():
-            matches = list(config.codex_projects_path.rglob(f"{session_id}.jsonl"))
-            if matches:
-                file_path = matches[0]
-                logger.debug("Found session via recursive search: %s", file_path)
+            for root in _iter_transcript_roots(account_name):
+                matches = list(root.rglob(f"{session_id}.jsonl"))
+                if not matches:
+                    canonical_id = _canonical_session_id(session_id)
+                    if canonical_id:
+                        matches = list(root.rglob(f"*{canonical_id}.jsonl"))
+                if matches:
+                    file_path = matches[0]
+                    logger.debug("Found session via recursive search: %s", file_path)
+                    break
             else:
                 return None
 
+        return await self._read_session_from_file(file_path, session_id=session_id)
+
+    async def _read_session_from_file(
+        self,
+        file_path: Path,
+        *,
+        session_id: str,
+    ) -> CodexSession | None:
+        """Read one transcript file and build a lightweight session summary."""
         # Single pass: read file once, extract summary + count messages
         summary = ""
         last_user_msg = ""
@@ -834,21 +906,77 @@ class SessionManager:
             file_path=str(file_path),
         )
 
+    async def _read_session_preview_from_file(
+        self,
+        file_path: Path,
+        *,
+        session_id: str,
+        max_lines: int = 80,
+    ) -> CodexSession | None:
+        """Read enough transcript metadata for the resume picker without full scans."""
+        summary = ""
+        last_user_msg = ""
+        scanned_lines = 0
+
+        try:
+            async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+                async for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    scanned_lines += 1
+                    try:
+                        data = json.loads(line)
+                        if data.get("type") == "summary":
+                            s = data.get("summary", "")
+                            if s:
+                                summary = s
+                                break
+                        elif TranscriptParser.is_user_message(data):
+                            parsed = TranscriptParser.parse_message(data)
+                            if parsed and parsed.text.strip():
+                                last_user_msg = parsed.text.strip()
+                                break
+                    except json.JSONDecodeError:
+                        continue
+
+                    if scanned_lines >= max_lines:
+                        break
+        except OSError:
+            return None
+
+        if not summary:
+            summary = last_user_msg[:50] if last_user_msg else "Untitled"
+
+        return CodexSession(
+            session_id=session_id,
+            summary=summary,
+            message_count=0,
+            file_path=str(file_path),
+        )
+
     # --- Directory session listing ---
 
     async def list_sessions_for_directory(self, cwd: str) -> list[CodexSession]:
         """List existing Codex sessions for a directory from recursive logs."""
+        started_at = time.perf_counter()
         try:
             target_cwd = str(Path(cwd).resolve())
         except OSError:
             target_cwd = cwd
 
+        deduped_files: dict[str, Path] = {}
+        for root in _iter_transcript_roots():
+            if not root.exists():
+                continue
+            for path in root.rglob("*.jsonl"):
+                if not path.is_file() or path.stem == "sessions-index":
+                    continue
+                key = str(path.resolve())
+                deduped_files.setdefault(key, path)
+
         jsonl_files = sorted(
-            (
-                path
-                for path in config.codex_projects_path.rglob("*.jsonl")
-                if path.is_file() and path.stem != "sessions-index"
-            ),
+            deduped_files.values(),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -869,9 +997,17 @@ class SessionManager:
             session_id = f.stem
             if self.is_session_hidden(session_id):
                 continue
-            session = await self._get_session_direct(session_id, session_cwd)
-            if session and session.message_count > 0:
+            session = await self._read_session_preview_from_file(
+                f, session_id=session_id
+            )
+            if session:
                 sessions.append(session)
+        logger.debug(
+            "Listed %d session(s) for %s in %.2fs",
+            len(sessions),
+            target_cwd,
+            time.perf_counter() - started_at,
+        )
         return sessions
 
     # --- Window → Session resolution ---
@@ -887,7 +1023,11 @@ class SessionManager:
         if not state.session_id or not state.cwd:
             return None
 
-        session = await self._get_session_direct(state.session_id, state.cwd)
+        session = await self._get_session_direct(
+            state.session_id,
+            state.cwd,
+            account_name=state.account_name,
+        )
         if session:
             return session
 
@@ -1003,7 +1143,7 @@ class SessionManager:
 
         for _user_id, _thread_id, window_id in self.iter_thread_bindings():
             state = self.window_states.get(window_id)
-            if state and state.session_id == session_id:
+            if state and _session_ids_match(state.session_id, session_id):
                 return True
         return False
 
@@ -1012,7 +1152,10 @@ class SessionManager:
         duplicates_by_session: dict[str, list[str]] = {}
         for window_id, state in self.window_states.items():
             if state.session_id:
-                duplicates_by_session.setdefault(state.session_id, []).append(window_id)
+                duplicates_by_session.setdefault(
+                    _canonical_session_id(state.session_id),
+                    [],
+                ).append(window_id)
 
         bound_window_ids = {
             window_id for _, _, window_id in self.iter_thread_bindings()
@@ -1066,7 +1209,7 @@ class SessionManager:
         result: list[tuple[int, str, int]] = []
         for user_id, thread_id, window_id in self.iter_thread_bindings():
             resolved = await self.resolve_session_for_window(window_id)
-            if resolved and resolved.session_id == session_id:
+            if resolved and _session_ids_match(resolved.session_id, session_id):
                 result.append((user_id, window_id, thread_id))
         return result
 

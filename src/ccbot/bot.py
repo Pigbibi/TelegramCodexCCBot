@@ -274,6 +274,12 @@ def _filter_resumable_sessions(
     ]
 
 
+def _has_trackable_session_for_window(window_id: str) -> bool:
+    """Return whether an existing tmux window already has a known Codex session."""
+    state = session_manager.window_states.get(window_id)
+    return bool(state and state.session_id)
+
+
 def _build_resume_conflict_keyboard() -> InlineKeyboardMarkup:
     """Offer safe next steps after blocking a duplicate resume."""
     return InlineKeyboardMarkup(
@@ -1284,27 +1290,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         # Unbound topic — check for unbound windows first
         all_windows = await tmux_manager.list_windows()
         bound_ids = {wid for _, _, wid in session_manager.iter_thread_bindings()}
-        unbound = [
+        bindable_unbound = [
             (w.window_id, w.window_name, w.cwd)
             for w in all_windows
             if w.window_id not in bound_ids
+            and _has_trackable_session_for_window(w.window_id)
         ]
         logger.debug(
-            "Window picker check: all=%s, bound=%s, unbound=%s",
+            "Window picker check: all=%s, bound=%s, bindable_unbound=%s",
             [w.window_name for w in all_windows],
             bound_ids,
-            [name for _, name, _ in unbound],
+            [name for _, name, _ in bindable_unbound],
         )
 
-        if unbound:
+        if bindable_unbound:
             # Show window picker
             logger.info(
-                "Unbound topic: showing window picker (%d unbound windows, user=%d, thread=%d)",
-                len(unbound),
+                "Unbound topic: showing window picker (%d bindable windows, user=%d, thread=%d)",
+                len(bindable_unbound),
                 user.id,
                 thread_id,
             )
-            msg_text, keyboard, win_ids = build_window_picker(unbound)
+            msg_text, keyboard, win_ids = build_window_picker(bindable_unbound)
             if context.user_data is not None:
                 context.user_data[STATE_KEY] = STATE_SELECTING_WINDOW
                 context.user_data[UNBOUND_WINDOWS_KEY] = win_ids
@@ -1933,6 +1940,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not w:
             display = session_manager.get_display_name(selected_wid)
             await query.answer(f"Window '{display}' no longer exists", show_alert=True)
+            return
+        if not _has_trackable_session_for_window(selected_wid):
+            await query.answer(
+                "This window has no tracked Codex session yet. Please choose New Session instead.",
+                show_alert=True,
+            )
             return
 
         thread_id = _get_thread_id(update)

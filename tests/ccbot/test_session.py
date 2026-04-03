@@ -2,10 +2,12 @@
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from ccbot.config import config
+from ccbot import session as session_module
 from ccbot.session import SessionManager
 
 
@@ -197,6 +199,107 @@ class TestHiddenSessions:
         sessions = await mgr.list_sessions_for_directory(str(project_dir))
 
         assert [session.session_id for session in sessions] == ["visible-session"]
+        assert sessions[0].message_count == 0
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_uses_matched_file_directly(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        archived_dir = codex_root / "archived_sessions"
+        archived_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+
+        session_file = archived_dir / "archived-session.jsonl"
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "Archived"},
+            {"type": "message", "role": "user", "content": [{"type": "text", "text": "hi"}]},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        get_session_direct = AsyncMock(side_effect=AssertionError("unexpected fallback"))
+        monkeypatch.setattr(mgr, "_get_session_direct", get_session_direct)
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert [session.session_id for session in sessions] == ["archived-session"]
+        assert sessions[0].message_count == 0
+        get_session_direct.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_session_direct_searches_account_homes(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        default_root = tmp_path / "default-codex"
+        account_home = tmp_path / "homes" / "plus1"
+        session_dir = account_home / mgr._encode_cwd(str(project_dir))
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = session_dir / "sid-1.jsonl"
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "From account home"},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(config, "codex_projects_path", default_root)
+        monkeypatch.setattr(session_module, "list_account_homes", lambda: [account_home])
+
+        session = await mgr._get_session_direct(
+            "sid-1",
+            str(project_dir),
+            account_name="plus1",
+        )
+
+        assert session is not None
+        assert session.file_path == str(session_file)
+
+    @pytest.mark.asyncio
+    async def test_get_session_direct_matches_rollout_filename_by_uuid_suffix(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        default_root = tmp_path / "default-codex"
+        default_root.mkdir()
+        monkeypatch.setattr(config, "codex_projects_path", default_root)
+        monkeypatch.setattr(session_module, "list_account_homes", lambda: [])
+
+        session_dir = default_root / "sessions" / "2026" / "04" / "03"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = (
+            session_dir
+            / "rollout-2026-04-03T10-18-03-019d5122-1b8c-7790-9525-6d21a3c5bb94.jsonl"
+        )
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "Rollout form"},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        session = await mgr._get_session_direct(
+            "019d5122-1b8c-7790-9525-6d21a3c5bb94",
+            str(project_dir),
+        )
+
+        assert session is not None
+        assert session.file_path == str(session_file)
 
 
 class TestResolveWindowForThread:
@@ -232,6 +335,19 @@ class TestHasBoundThreadForSession:
         mgr.get_window_state("@3").session_id = "session-a"
 
         assert mgr.has_bound_thread_for_session("session-b") is False
+
+    def test_matches_rollout_and_uuid_forms(self, mgr: SessionManager) -> None:
+        mgr.bind_thread(100, 42, "@3")
+        mgr.get_window_state("@3").session_id = (
+            "019d5122-1b8c-7790-9525-6d21a3c5bb94"
+        )
+
+        assert (
+            mgr.has_bound_thread_for_session(
+                "rollout-2026-04-03T10-18-03-019d5122-1b8c-7790-9525-6d21a3c5bb94"
+            )
+            is True
+        )
 
 
 class TestDisplayNames:

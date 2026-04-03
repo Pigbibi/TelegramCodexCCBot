@@ -217,9 +217,7 @@ class TestInstallHook:
         codex_dir = tmp_path / ".codex"
         config_file = codex_dir / "config.toml"
         hooks_file = codex_dir / "hooks.json"
-        monkeypatch.setattr(hook_module, "_CODEX_DIR", codex_dir)
-        monkeypatch.setattr(hook_module, "_CODEX_CONFIG_FILE", config_file)
-        monkeypatch.setattr(hook_module, "_CODEX_HOOKS_FILE", hooks_file)
+        monkeypatch.setenv("CODEX_HOME", str(codex_dir))
         return config_file, hooks_file
 
     def test_install_writes_config_and_hooks_json(

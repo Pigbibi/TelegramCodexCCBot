@@ -2,8 +2,8 @@
 
 Called by a SessionStart hook to maintain a window↔session mapping in
 <CCBOT_DIR>/session_map.json. Also provides `--install` to enable Codex hooks
-in `~/.codex/config.toml` and register the SessionStart hook in
-`~/.codex/hooks.json`.
+in the active Codex home (`$CODEX_HOME` when set, else `~/.codex`) and
+register the SessionStart hook there.
 
 This module must NOT import config.py (which requires TELEGRAM_BOT_TOKEN),
 since hooks run inside tmux panes where bot env vars are not set.
@@ -34,15 +34,26 @@ _ROLLOUT_SESSION_RE = re.compile(
 _CONFIG_SECTION_RE = re.compile(r"^\s*\[(.+?)\]\s*$")
 _CODEX_HOOKS_FLAG_RE = re.compile(r"^\s*codex_hooks\s*=")
 
-_CODEX_DIR = Path.home() / ".codex"
-_CODEX_CONFIG_FILE = _CODEX_DIR / "config.toml"
-_CODEX_HOOKS_FILE = _CODEX_DIR / "hooks.json"
 _SESSION_START_MATCHER = "startup|resume"
 _HOOK_STATUS_MESSAGE = "Registering CCBot session"
 _HOOK_TIMEOUT_SECONDS = 5
 
 # The hook command suffix for detection
 _HOOK_COMMAND_SUFFIX = "ccbot hook"
+
+
+def _codex_dir() -> Path:
+    """Resolve the active Codex home for hook install/runtime."""
+    codex_home = os.getenv("CODEX_HOME")
+    return Path(codex_home).expanduser() if codex_home else Path.home() / ".codex"
+
+
+def _codex_config_file() -> Path:
+    return _codex_dir() / "config.toml"
+
+
+def _codex_hooks_file() -> Path:
+    return _codex_dir() / "hooks.json"
 
 
 def _find_ccbot_path() -> str:
@@ -157,8 +168,8 @@ def _install_hook() -> int:
 
     Returns 0 on success, 1 on error.
     """
-    config_file = _CODEX_CONFIG_FILE
-    hooks_file = _CODEX_HOOKS_FILE
+    config_file = _codex_config_file()
+    hooks_file = _codex_hooks_file()
 
     try:
         _enable_codex_hooks_feature(config_file)
@@ -247,7 +258,7 @@ def hook_main() -> None:
     parser.add_argument(
         "--install",
         action="store_true",
-        help="Enable Codex hooks and install the SessionStart hook in ~/.codex/",
+        help="Enable Codex hooks and install the SessionStart hook in the active Codex home",
     )
     # Parse only known args to avoid conflicts with stdin JSON
     args, _ = parser.parse_known_args(sys.argv[2:])

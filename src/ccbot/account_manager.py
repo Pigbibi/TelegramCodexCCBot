@@ -27,6 +27,18 @@ def list_account_names() -> list[str]:
     return sorted(names)
 
 
+def list_account_homes() -> list[Path]:
+    """List prepared per-account CODEX_HOME directories."""
+    if not ACCOUNT_HOME_DIR.exists():
+        return []
+    homes = [
+        path
+        for path in ACCOUNT_HOME_DIR.iterdir()
+        if path.is_dir() and (path / "auth.json").is_file()
+    ]
+    return sorted(homes)
+
+
 def get_current_account_name() -> str | None:
     """Return the currently selected snapshot name, if any."""
     if not CURRENT_NAME_FILE.is_file():
@@ -95,6 +107,7 @@ def ensure_account_home(name: str) -> Path:
             raise FileNotFoundError(f"Account snapshot not found: {name}")
         _copy_if_different(snapshot_auth, account_home / "auth.json")
     _copy_if_different(CODEX_DIR / "config.toml", account_home / "config.toml")
+    _copy_if_different(CODEX_DIR / "hooks.json", account_home / "hooks.json")
 
     for child in ("memories", "tmp"):
         (account_home / child).mkdir(parents=True, exist_ok=True)

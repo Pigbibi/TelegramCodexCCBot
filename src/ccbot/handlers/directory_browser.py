@@ -230,7 +230,10 @@ def build_session_picker(
         summary = s.summary[:40] + "…" if len(s.summary) > 40 else s.summary
         rel = _relative_time(s.file_path)
         time_str = f" ({rel})" if rel else ""
-        lines.append(f"{i + 1}. {summary} — {s.message_count} msgs{time_str}")
+        if s.message_count > 0:
+            lines.append(f"{i + 1}. {summary} — {s.message_count} msgs{time_str}")
+        else:
+            lines.append(f"{i + 1}. {summary}{time_str}")
 
     buttons: list[list[InlineKeyboardButton]] = []
     for i in range(0, len(sessions), 2):

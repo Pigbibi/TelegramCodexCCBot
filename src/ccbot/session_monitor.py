@@ -15,6 +15,7 @@ import aiofiles
 
 from .config import config
 from .monitor_state import MonitorState, TrackedSession
+from .session import _iter_transcript_roots, _session_ids_match
 from .tmux_manager import tmux_manager
 from .transcript_parser import PendingToolInfo, TranscriptParser
 from .utils import read_cwd_from_jsonl
@@ -106,18 +107,25 @@ class SessionMonitor:
 
     def _iter_session_files(self) -> list[Path]:
         """Recursively find candidate transcript files under the Codex root."""
-        base_path = self.projects_path.expanduser()
-        if not base_path.exists():
-            return []
-
         files: list[Path] = []
-        for jsonl_file in base_path.rglob("*.jsonl"):
-            if not jsonl_file.is_file():
+        seen: set[str] = set()
+
+        for base_path in _iter_transcript_roots():
+            base_path = base_path.expanduser()
+            if not base_path.exists():
                 continue
-            lower_name = jsonl_file.name.lower()
-            if "index" in lower_name or "history" in lower_name:
-                continue
-            files.append(jsonl_file)
+
+            for jsonl_file in base_path.rglob("*.jsonl"):
+                if not jsonl_file.is_file():
+                    continue
+                lower_name = jsonl_file.name.lower()
+                if "index" in lower_name or "history" in lower_name:
+                    continue
+                key = str(jsonl_file.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                files.append(jsonl_file)
         return files
 
     @staticmethod
@@ -242,7 +250,7 @@ class SessionMonitor:
 
         for _user_id, _thread_id, window_id in session_manager.iter_thread_bindings():
             state = session_manager.get_window_state(window_id)
-            if state.session_id == session_id:
+            if _session_ids_match(state.session_id, session_id):
                 return
 
         windows = await tmux_manager.list_windows()

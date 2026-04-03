@@ -37,6 +37,7 @@ def test_ensure_account_home_copies_auth_and_config(tmp_path, monkeypatch) -> No
         encoding="utf-8",
     )
     (codex_dir / "config.toml").write_text('model = "gpt-5.4"\n', encoding="utf-8")
+    (codex_dir / "hooks.json").write_text('{"hooks":{}}\n', encoding="utf-8")
 
     monkeypatch.setattr(account_manager, "SNAPSHOT_DIR", snapshot_dir)
     monkeypatch.setattr(account_manager, "ACCOUNT_HOME_DIR", account_home_dir)
@@ -47,5 +48,6 @@ def test_ensure_account_home_copies_auth_and_config(tmp_path, monkeypatch) -> No
     assert home == account_home_dir / "plus1"
     assert (home / "auth.json").read_text(encoding="utf-8") == '{"auth_mode":"chatgpt"}'
     assert (home / "config.toml").read_text(encoding="utf-8") == 'model = "gpt-5.4"\n'
+    assert (home / "hooks.json").read_text(encoding="utf-8") == '{"hooks":{}}\n'
     assert (home / "memories").is_dir()
     assert (home / "tmp").is_dir()
