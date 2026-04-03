@@ -3,12 +3,19 @@
 import io
 import json
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 from ccbot import hook as hook_module
-from ccbot.hook import _UUID_RE, _install_hook, _is_hook_installed, hook_main
+from ccbot.hook import (
+    _ROLLOUT_SESSION_RE,
+    _UUID_RE,
+    _install_hook,
+    _is_hook_installed,
+    hook_main,
+)
 
 
 class TestUuidRegex:
@@ -36,6 +43,31 @@ class TestUuidRegex:
     )
     def test_invalid_uuid_no_match(self, value: str) -> None:
         assert _UUID_RE.match(value) is None
+
+
+class TestRolloutSessionRegex:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "rollout-2026-04-03T08-30-00-019d4610-438c-7c52-bf97-bc6f02747399",
+            "rollout-2026-01-01T00-00-00-deadbeef-dead-beef-dead-beefdeadbeef",
+        ],
+        ids=["uuid-suffix", "hex-hyphen-suffix"],
+    )
+    def test_valid_rollout_session_matches(self, value: str) -> None:
+        assert _ROLLOUT_SESSION_RE.match(value) is not None
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "rollout-2026-04-03 08-30-00-019d4610-438c-7c52-bf97-bc6f02747399",
+            "rollout-2026-04-03T08-30-00-",
+            "rollout-2026-04-03T08:30:00-deadbeef",
+        ],
+        ids=["space-separated-time", "missing-suffix", "colon-time"],
+    )
+    def test_invalid_rollout_session_no_match(self, value: str) -> None:
+        assert _ROLLOUT_SESSION_RE.match(value) is None
 
 
 class TestIsHookInstalled:
@@ -120,6 +152,36 @@ class TestHookMainValidation:
             },
         )
         assert not (tmp_path / "session_map.json").exists()
+
+    def test_valid_rollout_session_writes_session_map(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv("CCBOT_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            hook_module.subprocess,
+            "run",
+            lambda *args, **kwargs: SimpleNamespace(
+                stdout="ccbot:@12:demo", returncode=0
+            ),
+        )
+        self._run_hook_main(
+            monkeypatch,
+            {
+                "session_id": "rollout-2026-04-03T08-30-00-019d4610-438c-7c52-bf97-bc6f02747399",
+                "cwd": "/tmp",
+                "hook_event_name": "SessionStart",
+            },
+            tmux_pane="%1",
+        )
+
+        session_map = json.loads((tmp_path / "session_map.json").read_text())
+        assert session_map == {
+            "ccbot:@12": {
+                "session_id": "rollout-2026-04-03T08-30-00-019d4610-438c-7c52-bf97-bc6f02747399",
+                "cwd": "/tmp",
+                "window_name": "demo",
+            }
+        }
 
     def test_relative_cwd(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         monkeypatch.setenv("CCBOT_DIR", str(tmp_path))

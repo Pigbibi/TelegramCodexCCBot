@@ -589,9 +589,39 @@ async def topic_closed_handler(
                 exc,
             )
     else:
-        logger.debug(
-            "Topic closed: no binding (user=%d, thread=%d)", user.id, thread_id
-        )
+        await clear_topic_state(user.id, thread_id, context.bot, context.user_data)
+        try:
+            await context.bot.delete_forum_topic(
+                chat_id=chat_id,
+                message_thread_id=thread_id,
+            )
+            logger.info(
+                "Topic closed: deleted unbound topic (chat_id=%s, thread=%d)",
+                chat_id,
+                thread_id,
+            )
+        except BadRequest as exc:
+            message = str(exc)
+            if "Topic_id_invalid" in message or "message thread not found" in message:
+                logger.info(
+                    "Topic closed: unbound topic already deleted (chat_id=%s, thread=%d)",
+                    chat_id,
+                    thread_id,
+                )
+            else:
+                logger.debug(
+                    "Topic closed: no binding and delete failed (user=%d, thread=%d): %s",
+                    user.id,
+                    thread_id,
+                    exc,
+                )
+        except TelegramError as exc:
+            logger.debug(
+                "Topic closed: no binding and delete failed (user=%d, thread=%d): %s",
+                user.id,
+                thread_id,
+                exc,
+            )
 
 
 async def topic_edited_handler(

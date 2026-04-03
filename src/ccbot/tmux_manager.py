@@ -53,8 +53,16 @@ class TmuxManager:
     def server(self) -> libtmux.Server:
         """Get or create tmux server connection."""
         if self._server is None:
-            self._server = libtmux.Server()
+            self._server = libtmux.Server(socket_name=config.tmux_socket_name)
         return self._server
+
+    @staticmethod
+    def _tmux_cli_prefix() -> list[str]:
+        """Build a tmux CLI prefix that targets the configured socket when set."""
+        cmd = ["tmux"]
+        if config.tmux_socket_name:
+            cmd.extend(["-L", config.tmux_socket_name])
+        return cmd
 
     def get_session(self) -> libtmux.Session | None:
         """Get the tmux session if it exists."""
@@ -185,7 +193,7 @@ class TmuxManager:
             # Use async subprocess to call tmux capture-pane -e for ANSI colors
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "tmux",
+                    *self._tmux_cli_prefix(),
                     "capture-pane",
                     "-e",
                     "-p",

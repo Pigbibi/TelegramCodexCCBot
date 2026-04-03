@@ -57,7 +57,8 @@ class Config:
                 "Expected comma-separated Telegram user IDs."
             ) from e
 
-        # Tmux session name and window naming
+        # Tmux session name/socket and window naming
+        self.tmux_socket_name = os.getenv("TMUX_SOCKET_NAME") or None
         self.tmux_session_name = os.getenv("TMUX_SESSION_NAME", "ccbot")
         self.tmux_main_window_name = "__main__"
 
@@ -119,10 +120,11 @@ class Config:
 
         logger.debug(
             "Config initialized: dir=%s, token=%s..., allowed_users=%d, "
-            "tmux_session=%s, codex_projects_path=%s",
+            "tmux_socket=%s, tmux_session=%s, codex_projects_path=%s",
             self.config_dir,
             self.telegram_bot_token[:8],
             len(self.allowed_users),
+            self.tmux_socket_name,
             self.tmux_session_name,
             self.codex_projects_path,
         )

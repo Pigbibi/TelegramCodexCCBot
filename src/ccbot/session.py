@@ -306,6 +306,31 @@ class SessionManager:
         for uid in empty_users:
             del self.thread_bindings[uid]
 
+        # --- Prune display names and chat mappings that no longer have live state ---
+        valid_window_ids = set(self.window_states)
+        stale_display_ids = [
+            window_id
+            for window_id in self.window_display_names
+            if window_id not in valid_window_ids
+        ]
+        for window_id in stale_display_ids:
+            logger.info("Dropping stale window display name: %s", window_id)
+            del self.window_display_names[window_id]
+            changed = True
+
+        valid_thread_keys = {
+            f"{uid}:{tid}"
+            for uid, bindings in self.thread_bindings.items()
+            for tid in bindings
+        }
+        stale_chat_keys = [
+            key for key in self.group_chat_ids if key not in valid_thread_keys
+        ]
+        for key in stale_chat_keys:
+            logger.info("Dropping stale group chat mapping: %s", key)
+            del self.group_chat_ids[key]
+            changed = True
+
         # --- Migrate user_window_offsets ---
         for uid, offsets in self.user_window_offsets.items():
             new_offsets: dict[str, int] = {}

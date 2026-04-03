@@ -26,8 +26,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Validate session_id looks like a UUID
+# Validate session_id looks like a UUID or a Codex rollout session id
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_ROLLOUT_SESSION_RE = re.compile(
+    r"^rollout-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9a-f-]+$"
+)
 _CONFIG_SECTION_RE = re.compile(r"^\s*\[(.+?)\]\s*$")
 _CODEX_HOOKS_FLAG_RE = re.compile(r"^\s*codex_hooks\s*=")
 
@@ -269,8 +272,8 @@ def hook_main() -> None:
         logger.debug("Empty session_id or event, ignoring")
         return
 
-    # Validate session_id format
-    if not _UUID_RE.match(session_id):
+    # Validate session_id format (Codex rollout ids or legacy UUIDs)
+    if not (_UUID_RE.match(session_id) or _ROLLOUT_SESSION_RE.match(session_id)):
         logger.warning("Invalid session_id format: %s", session_id)
         return
 
