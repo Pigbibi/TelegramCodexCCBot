@@ -548,6 +548,8 @@ async def topic_closed_handler(
                 user.id,
                 thread_id,
             )
+        if session_id:
+            session_manager.hide_session(session_id)
         session_manager.unbind_thread(user.id, thread_id)
         await session_manager.remove_session_map_entry(wid)
         session_manager.remove_window_state(wid)
@@ -1826,6 +1828,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
 
         session = cached_sessions[idx]
+        session_manager.unhide_session(session.session_id)
         if session_manager.has_bound_thread_for_session(session.session_id):
             resumable_sessions = _filter_resumable_sessions(cached_sessions)
             if context.user_data is not None:

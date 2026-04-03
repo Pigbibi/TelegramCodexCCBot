@@ -1,7 +1,11 @@
 """Tests for SessionManager pure dict operations."""
 
+import json
+from pathlib import Path
+
 import pytest
 
+from ccbot.config import config
 from ccbot.session import SessionManager
 
 
@@ -143,6 +147,56 @@ class TestWindowState:
         assert mgr.mark_window_usage_limit_exceeded("@1", True) is False
         assert mgr.mark_window_usage_limit_exceeded("@1", False) is True
         assert mgr.get_window_state("@1").usage_limit_exceeded is False
+
+    def test_register_session_to_window_unhides_session(
+        self, mgr: SessionManager
+    ) -> None:
+        mgr.hidden_session_ids.add("sid-1")
+
+        mgr.register_session_to_window("@1", "sid-1", "/tmp/project")
+
+        assert "sid-1" not in mgr.hidden_session_ids
+
+
+class TestHiddenSessions:
+    def test_hide_and_unhide_session(self, mgr: SessionManager) -> None:
+        assert mgr.hide_session("sid-1") is True
+        assert mgr.is_session_hidden("sid-1") is True
+        assert mgr.hide_session("sid-1") is False
+
+        assert mgr.unhide_session("sid-1") is True
+        assert mgr.is_session_hidden("sid-1") is False
+        assert mgr.unhide_session("sid-1") is False
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_skips_hidden_sessions(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+
+        def write_session(session_id: str, *, summary: str) -> None:
+            session_dir = codex_root / mgr._encode_cwd(str(project_dir))
+            session_dir.mkdir(parents=True, exist_ok=True)
+            payload = [
+                {"cwd": str(project_dir)},
+                {"type": "summary", "summary": summary},
+            ]
+            (session_dir / f"{session_id}.jsonl").write_text(
+                "\n".join(json.dumps(item) for item in payload) + "\n",
+                encoding="utf-8",
+            )
+
+        write_session("visible-session", summary="Visible")
+        write_session("hidden-session", summary="Hidden")
+        mgr.hide_session("hidden-session")
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert [session.session_id for session in sessions] == ["visible-session"]
 
 
 class TestResolveWindowForThread:

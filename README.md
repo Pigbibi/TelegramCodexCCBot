@@ -43,6 +43,7 @@ Compared with https://github.com/six-ddc/ccbot, this fork adds or changes the fo
 - **Interactive UI support** — navigate AskUserQuestion, ExitPlanMode, and permission prompts from inline keyboards
 - **Voice message transcription** — voice messages can be transcribed with OpenAI and forwarded as text
 - **Resume existing sessions** — choose an existing Codex session in a directory and continue from there
+- **Closed-session hiding** — sessions closed through topic deletion or cleanup are hidden from the resume picker by default, without deleting their transcripts
 - **Topic cleanup** — stale topics, stale tmux windows, and dead bindings are cleaned up more safely
 - **Usage-limit failover** — when a session hits `usage_limit_exceeded`, the next message can rotate to another saved account in a fresh session
 - **Persistent state** — thread bindings, display names, offsets, and monitor state survive restarts
@@ -248,6 +249,10 @@ After a topic is bound, just keep sending text or voice messages in that topic.
 - use `/kill`, or
 - use `/unbind` if you want to keep the tmux window alive but detach the topic
 
+If you close/delete a topic (or the bot cleans up a dead topic/window), the
+associated Codex session is hidden from the resume picker by default. The
+underlying transcript file is kept on disk under `~/.codex`.
+
 ## Notifications
 
 The monitor polls transcript files and can forward:
@@ -272,7 +277,7 @@ The window must live inside the configured `ccbot` tmux session.
 
 | Path | Description |
 | --- | --- |
-| `$CCBOT_DIR/state.json` | Thread bindings, window state, display names, offsets |
+| `$CCBOT_DIR/state.json` | Thread bindings, window state, display names, offsets, and hidden closed-session IDs |
 | `$CCBOT_DIR/session_map.json` | Hook-generated tmux window ↔ session mappings |
 | `$CCBOT_DIR/monitor_state.json` | Monitor byte offsets per session |
 | `$CCBOT_DIR/pending_topic_deletions.json` | Deferred topic deletions after local cleanup |

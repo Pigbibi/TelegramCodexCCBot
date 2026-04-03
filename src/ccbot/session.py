@@ -113,6 +113,8 @@ class SessionManager:
     # History: originally added in 5afc111, erroneously removed in 26cb81f,
     # restored in PR #23.
     group_chat_ids: dict[str, int] = field(default_factory=dict)
+    # Closed sessions that should be hidden from the resume picker by default.
+    hidden_session_ids: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self._load_state()
@@ -129,6 +131,7 @@ class SessionManager:
             },
             "window_display_names": self.window_display_names,
             "group_chat_ids": self.group_chat_ids,
+            "hidden_session_ids": sorted(self.hidden_session_ids),
         }
         atomic_write_json(config.state_file, state)
         logger.debug("State saved to %s", config.state_file)
@@ -162,6 +165,11 @@ class SessionManager:
                 self.group_chat_ids = {
                     k: int(v) for k, v in state.get("group_chat_ids", {}).items()
                 }
+                self.hidden_session_ids = {
+                    session_id
+                    for session_id in state.get("hidden_session_ids", [])
+                    if isinstance(session_id, str) and session_id
+                }
 
                 # Detect old format: keys that don't look like window IDs
                 needs_migration = False
@@ -192,6 +200,7 @@ class SessionManager:
                 self.thread_bindings = {}
                 self.window_display_names = {}
                 self.group_chat_ids = {}
+                self.hidden_session_ids = set()
                 pass
 
     async def resolve_stale_ids(self) -> None:
@@ -668,6 +677,28 @@ class SessionManager:
         logger.info("Window %s usage_limit_exceeded=%s", window_id, exceeded)
         return True
 
+    def hide_session(self, session_id: str) -> bool:
+        """Hide one closed session from the resume picker."""
+        if not session_id or session_id in self.hidden_session_ids:
+            return False
+        self.hidden_session_ids.add(session_id)
+        self._save_state()
+        logger.info("Hid closed session from picker: %s", session_id)
+        return True
+
+    def unhide_session(self, session_id: str) -> bool:
+        """Make one session visible in the resume picker again."""
+        if not session_id or session_id not in self.hidden_session_ids:
+            return False
+        self.hidden_session_ids.remove(session_id)
+        self._save_state()
+        logger.info("Unhid session in picker: %s", session_id)
+        return True
+
+    def is_session_hidden(self, session_id: str) -> bool:
+        """Return whether a session is currently hidden from the resume picker."""
+        return session_id in self.hidden_session_ids
+
     def remove_window_state(self, window_id: str) -> None:
         """Remove all persisted state associated with a tmux window."""
         changed = False
@@ -722,6 +753,7 @@ class SessionManager:
         state.session_id = session_id
         state.cwd = cwd
         state.usage_limit_exceeded = False
+        self.hidden_session_ids.discard(session_id)
         if window_name:
             state.window_name = window_name
             self.window_display_names[window_id] = window_name
@@ -835,6 +867,8 @@ class SessionManager:
             if len(sessions) >= 10:
                 break
             session_id = f.stem
+            if self.is_session_hidden(session_id):
+                continue
             session = await self._get_session_direct(session_id, session_cwd)
             if session and session.message_count > 0:
                 sessions.append(session)

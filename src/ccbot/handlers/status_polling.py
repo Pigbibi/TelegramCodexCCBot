@@ -141,8 +141,12 @@ async def status_poll_loop(bot: Bot) -> None:
                         if "Topic_id_invalid" in str(e):
                             # Topic deleted — kill window, unbind, and clean up state
                             w = await tmux_manager.find_window_by_id(wid)
+                            state = session_manager.window_states.get(wid)
+                            session_id = state.session_id if state else ""
                             if w:
                                 await tmux_manager.kill_window(w.window_id)
+                            if session_id:
+                                session_manager.hide_session(session_id)
                             session_manager.unbind_thread(user_id, thread_id)
                             await session_manager.remove_session_map_entry(wid)
                             session_manager.remove_window_state(wid)
@@ -172,6 +176,10 @@ async def status_poll_loop(bot: Bot) -> None:
                     # Clean up stale bindings (window no longer exists)
                     w = await tmux_manager.find_window_by_id(wid)
                     if not w:
+                        state = session_manager.window_states.get(wid)
+                        session_id = state.session_id if state else ""
+                        if session_id:
+                            session_manager.hide_session(session_id)
                         session_manager.unbind_thread(user_id, thread_id)
                         await session_manager.remove_session_map_entry(wid)
                         session_manager.remove_window_state(wid)

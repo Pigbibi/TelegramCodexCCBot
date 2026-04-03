@@ -43,6 +43,7 @@ https://github.com/user-attachments/assets/15ffb38e-5eb9-4720-93b9-412e4961dc93
 - **交互式 UI 支持** —— AskUserQuestion、ExitPlanMode、权限提示可以直接在 Telegram 里点按钮操作
 - **语音转文字** —— 语音消息可以通过 OpenAI 转录后继续发给 Codex
 - **恢复已有会话** —— 在目录里挑已有 Codex session 继续跑
+- **已关闭会话默认隐藏** —— topic 删除或清理后，对应 session 默认不再出现在 Resume 列表里，但 transcript 文件不会删
 - **topic / 窗口清理** —— 对 stale topic、stale tmux 窗口和残留绑定做更稳的清理
 - **额度失败转移** —— 某个账号打满后，下一条消息可以切到另一个已保存账号的新 session
 - **持久化状态** —— thread bindings、display name、offset、monitor state 重启后还能保留
@@ -250,6 +251,10 @@ topic 绑定以后，直接继续发文字或语音消息就行。
 - 用 `/kill`
 - 或者用 `/unbind` 只解绑，不杀 tmux 窗口
 
+如果你关闭 / 删除 topic，或者 bot 在清理死 topic / 死窗口，对应的
+Codex session 会默认从 Resume 列表里隐藏；底层 transcript 仍然保留在
+`~/.codex` 里，不会直接删除。
+
 ## 通知内容
 
 监控器会轮询 transcript，并可转发：
@@ -274,7 +279,7 @@ codex
 
 | 路径 | 说明 |
 | --- | --- |
-| `$CCBOT_DIR/state.json` | thread 绑定、窗口状态、display name、offset |
+| `$CCBOT_DIR/state.json` | thread 绑定、窗口状态、display name、offset，以及已隐藏的关闭会话 ID |
 | `$CCBOT_DIR/session_map.json` | hook 生成的 tmux window ↔ session 映射 |
 | `$CCBOT_DIR/monitor_state.json` | monitor 的 byte offset |
 | `$CCBOT_DIR/pending_topic_deletions.json` | 本地清理后延迟执行的 topic 删除队列 |

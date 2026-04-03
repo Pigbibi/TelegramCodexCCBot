@@ -105,6 +105,10 @@ class TopicStateCleanupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot_module.session_manager, "unbind_thread") as unbind_mock,
             patch.object(
                 bot_module.session_manager,
+                "hide_session",
+            ) as hide_session_mock,
+            patch.object(
+                bot_module.session_manager,
                 "remove_session_map_entry",
                 AsyncMock(),
             ) as remove_session_map_entry_mock,
@@ -136,6 +140,7 @@ class TopicStateCleanupTests(unittest.IsolatedAsyncioTestCase):
             await bot_module.topic_closed_handler(update, context)
 
         kill_window_mock.assert_awaited_once_with("@1")
+        hide_session_mock.assert_called_once_with("sid-1")
         unbind_mock.assert_called_once_with(1, 106)
         remove_session_map_entry_mock.assert_awaited_once_with("@1")
         remove_window_state_mock.assert_called_once_with("@1")
