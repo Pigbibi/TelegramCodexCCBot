@@ -10,7 +10,8 @@ All Codex text patterns live here. To support a new UI type or
 a changed Codex version, edit UI_PATTERNS / STATUS_SPINNERS.
 
 Key functions: is_interactive_ui(), extract_interactive_content(),
-parse_status_line(), strip_pane_chrome(), extract_bash_output().
+parse_status_line(), parse_status_update(), strip_pane_chrome(),
+extract_bash_output().
 """
 
 import re
@@ -197,6 +198,10 @@ def is_interactive_ui(pane_text: str) -> bool:
 
 # Spinner characters Codex uses in its status line
 STATUS_SPINNERS = frozenset(["·", "✻", "✽", "✶", "✳", "✢"])
+_PROGRESS_BULLETS = ("•", "◦")
+_PROMPT_PREFIXES = ("›", "❯")
+_MAX_PROGRESS_LINES = 8
+_MAX_PROGRESS_CHARS = 1000
 
 
 def parse_status_line(pane_text: str) -> str | None:
@@ -236,6 +241,96 @@ def parse_status_line(pane_text: str) -> str | None:
         # First non-empty line above separator isn't a spinner → no status
         return None
     return None
+
+
+def _truncate_progress_text(text: str) -> str:
+    """Keep public progress updates compact for Telegram status edits."""
+    lines = text.splitlines()
+    if len(lines) > _MAX_PROGRESS_LINES:
+        lines = lines[:_MAX_PROGRESS_LINES]
+        lines.append("…")
+    text = "\n".join(line.rstrip() for line in lines).strip()
+    if len(text) > _MAX_PROGRESS_CHARS:
+        text = text[: _MAX_PROGRESS_CHARS - 1].rstrip() + "…"
+    return text
+
+
+def parse_public_progress_block(pane_text: str) -> str | None:
+    """Extract the latest public progress block shown in the terminal.
+
+    This only uses text that is already visible in the tmux pane, such as:
+      - ``• Explored``
+      - ``• Ran ...``
+      - ``• Searched ...``
+      - ``◦ Searching the web``
+
+    It does not expose hidden reasoning. Returns the most recent visible block,
+    or ``None`` if nothing suitable is found.
+    """
+    if not pane_text:
+        return None
+
+    lines = strip_pane_chrome(pane_text.split("\n"))
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return None
+
+    # Only inspect the recent tail where Codex renders progress updates.
+    lines = lines[max(0, len(lines) - 40) :]
+
+    def _is_progress_start(stripped: str) -> bool:
+        return stripped.startswith(_PROGRESS_BULLETS)
+
+    def _is_progress_continuation(stripped: str) -> bool:
+        if not stripped:
+            return False
+        if stripped.startswith(_PROGRESS_BULLETS):
+            return False
+        if stripped.startswith(_PROMPT_PREFIXES):
+            return False
+        first = stripped[0]
+        return first.isspace() or first in {"│", "└", "…"}
+
+    for idx in range(len(lines) - 1, -1, -1):
+        stripped = lines[idx].strip()
+        if not _is_progress_start(stripped):
+            continue
+
+        block_lines = [lines[idx].rstrip()]
+        for next_idx in range(idx + 1, len(lines)):
+            next_stripped = lines[next_idx].rstrip()
+            next_trimmed = next_stripped.strip()
+            if not next_trimmed:
+                break
+            if next_trimmed.startswith(_PROMPT_PREFIXES):
+                break
+            if next_trimmed.startswith(_PROGRESS_BULLETS):
+                break
+            if not _is_progress_continuation(next_stripped):
+                break
+            block_lines.append(next_stripped)
+
+        return _truncate_progress_text("\n".join(block_lines))
+
+    return None
+
+
+def parse_status_update(pane_text: str) -> str | None:
+    """Build the best Telegram status text from a tmux pane capture.
+
+    Prefer a recent public progress block when Codex is actively working, and
+    keep the old spinner/status-line behavior as a fallback.
+    """
+    status_line = parse_status_line(pane_text)
+    progress_block = parse_public_progress_block(pane_text)
+
+    if progress_block and status_line:
+        if status_line not in progress_block:
+            return f"{progress_block}\n\n⏳ {status_line}"
+        return progress_block
+
+    return progress_block or status_line
 
 
 # ── Pane chrome stripping & bash output extraction ─────────────────────

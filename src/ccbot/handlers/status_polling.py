@@ -24,7 +24,7 @@ from telegram import Bot
 from telegram.error import BadRequest
 
 from ..session import session_manager
-from ..terminal_parser import is_interactive_ui, parse_status_line
+from ..terminal_parser import is_interactive_ui, parse_status_update
 from ..tmux_manager import tmux_manager
 from .interactive_ui import (
     clear_interactive_msg,
@@ -106,14 +106,14 @@ async def update_status_message(
     if skip_status:
         return
 
-    status_line = parse_status_line(pane_text)
+    status_text = parse_status_update(pane_text)
 
-    if status_line:
+    if status_text:
         await enqueue_status_update(
             bot,
             user_id,
             window_id,
-            status_line,
+            status_text,
             thread_id=thread_id,
         )
     # If no status line, keep existing status message (don't clear on transient state)

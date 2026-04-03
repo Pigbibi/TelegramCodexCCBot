@@ -29,7 +29,7 @@ from telegram.error import RetryAfter
 
 from ..markdown_v2 import convert_markdown
 from ..session import session_manager
-from ..terminal_parser import parse_status_line
+from ..terminal_parser import parse_status_update
 from ..tmux_manager import tmux_manager
 from .message_sender import (
     NO_LINK_PREVIEW,
@@ -586,9 +586,9 @@ async def _check_and_send_status(
         return
 
     tid = thread_id or 0
-    status_line = parse_status_line(pane_text)
-    if status_line:
-        await _do_send_status_message(bot, user_id, tid, window_id, status_line)
+    status_text = parse_status_update(pane_text)
+    if status_text:
+        await _do_send_status_message(bot, user_id, tid, window_id, status_text)
 
 
 async def enqueue_content_message(

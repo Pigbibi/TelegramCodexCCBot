@@ -103,6 +103,47 @@ class TestStatusPollerSettingsDetection:
             mock_handle_ui.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_public_progress_block_is_sent_as_status(self, mock_bot: AsyncMock):
+        """Recent public progress should show up in Telegram status updates."""
+        window_id = "@5"
+        mock_window = MagicMock()
+        mock_window.window_id = window_id
+        pane = (
+            "• Searched site:msci.com \\\"MSCI USA Momentum Index\\\"\n"
+            "✻ Searching the web\n"
+            "──────────────────────────────────────\n"
+            "❯ \n"
+            "──────────────────────────────────────\n"
+            "  [Opus 4.6] Context: 50%\n"
+        )
+
+        with (
+            patch("ccbot.handlers.status_polling.tmux_manager") as mock_tmux,
+            patch(
+                "ccbot.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle_ui,
+            patch(
+                "ccbot.handlers.status_polling.enqueue_status_update",
+                new_callable=AsyncMock,
+            ) as mock_enqueue_status,
+        ):
+            mock_tmux.find_window_by_id = AsyncMock(return_value=mock_window)
+            mock_tmux.capture_pane = AsyncMock(return_value=pane)
+
+            await update_status_message(
+                mock_bot, user_id=1, window_id=window_id, thread_id=42
+            )
+
+            mock_handle_ui.assert_not_called()
+            mock_enqueue_status.assert_called_once()
+            assert (
+                mock_enqueue_status.call_args.args[3]
+                == '• Searched site:msci.com \\"MSCI USA Momentum Index\\"\n\n'
+                '⏳ Searching the web'
+            )
+
+    @pytest.mark.asyncio
     async def test_settings_ui_end_to_end_sends_telegram_keyboard(
         self, mock_bot: AsyncMock, sample_pane_settings: str
     ):

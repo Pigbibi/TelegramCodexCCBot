@@ -16,17 +16,21 @@ Rate limiting is handled globally by AIORateLimiter on the Application.
 RetryAfter exceptions are re-raised so callers (queue worker) can handle them.
 """
 
+import asyncio
 import io
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from telegram import Bot, InputMediaPhoto, LinkPreviewOptions, Message
-from telegram.error import RetryAfter
+from telegram.error import NetworkError, RetryAfter
 
 from ..markdown_v2 import convert_markdown
 from ..transcript_parser import TranscriptParser
 
 logger = logging.getLogger(__name__)
+
+_CONNECT_ERROR_RETRY_DELAYS = (0.5, 1.0)
 
 
 def strip_sentinels(text: str) -> str:
@@ -42,6 +46,45 @@ def strip_sentinels(text: str) -> str:
 def _ensure_formatted(text: str) -> str:
     """Convert markdown to MarkdownV2."""
     return convert_markdown(text)
+
+
+def _is_retryable_connect_error(exc: BaseException) -> bool:
+    """Retry only transient connect failures before Telegram receives the request."""
+    if not isinstance(exc, NetworkError):
+        return False
+    current: BaseException | None = exc
+    while current is not None:
+        if "ConnectError" in str(current):
+            return True
+        current = current.__cause__
+    return False
+
+
+async def _call_with_connect_retry(
+    send_call: Callable[[], Awaitable[Any]],
+    *,
+    action: str,
+) -> Any:
+    """Retry Telegram sends when the client cannot establish a connection at all."""
+    total_attempts = len(_CONNECT_ERROR_RETRY_DELAYS) + 1
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return await send_call()
+        except RetryAfter:
+            raise
+        except Exception as exc:
+            if attempt >= total_attempts or not _is_retryable_connect_error(exc):
+                raise
+            logger.warning(
+                "%s failed with transient connect error, retrying (%d/%d): %s",
+                action,
+                attempt + 1,
+                total_attempts,
+                exc,
+            )
+            await asyncio.sleep(_CONNECT_ERROR_RETRY_DELAYS[attempt - 1])
 
 
 PARSE_MODE = "MarkdownV2"
@@ -64,18 +107,24 @@ async def send_with_fallback(
     """
     kwargs.setdefault("link_preview_options", NO_LINK_PREVIEW)
     try:
-        return await bot.send_message(
-            chat_id=chat_id,
-            text=_ensure_formatted(text),
-            parse_mode=PARSE_MODE,
-            **kwargs,
+        return await _call_with_connect_retry(
+            lambda: bot.send_message(
+                chat_id=chat_id,
+                text=_ensure_formatted(text),
+                parse_mode=PARSE_MODE,
+                **kwargs,
+            ),
+            action=f"Send formatted message to {chat_id}",
         )
     except RetryAfter:
         raise
     except Exception:
         try:
-            return await bot.send_message(
-                chat_id=chat_id, text=strip_sentinels(text), **kwargs
+            return await _call_with_connect_retry(
+                lambda: bot.send_message(
+                    chat_id=chat_id, text=strip_sentinels(text), **kwargs
+                ),
+                action=f"Send plain message to {chat_id}",
             )
         except RetryAfter:
             raise
@@ -130,16 +179,22 @@ async def safe_reply(message: Message, text: str, **kwargs: Any) -> Message:
     """Reply with formatting, falling back to plain text on failure."""
     kwargs.setdefault("link_preview_options", NO_LINK_PREVIEW)
     try:
-        return await message.reply_text(
-            _ensure_formatted(text),
-            parse_mode=PARSE_MODE,
-            **kwargs,
+        return await _call_with_connect_retry(
+            lambda: message.reply_text(
+                _ensure_formatted(text),
+                parse_mode=PARSE_MODE,
+                **kwargs,
+            ),
+            action="Reply with formatting",
         )
     except RetryAfter:
         raise
     except Exception:
         try:
-            return await message.reply_text(strip_sentinels(text), **kwargs)
+            return await _call_with_connect_retry(
+                lambda: message.reply_text(strip_sentinels(text), **kwargs),
+                action="Reply in plain text",
+            )
         except RetryAfter:
             raise
         except Exception as e:
@@ -151,16 +206,22 @@ async def safe_edit(target: Any, text: str, **kwargs: Any) -> None:
     """Edit message with formatting, falling back to plain text on failure."""
     kwargs.setdefault("link_preview_options", NO_LINK_PREVIEW)
     try:
-        await target.edit_message_text(
-            _ensure_formatted(text),
-            parse_mode=PARSE_MODE,
-            **kwargs,
+        await _call_with_connect_retry(
+            lambda: target.edit_message_text(
+                _ensure_formatted(text),
+                parse_mode=PARSE_MODE,
+                **kwargs,
+            ),
+            action="Edit formatted message",
         )
     except RetryAfter:
         raise
     except Exception:
         try:
-            await target.edit_message_text(strip_sentinels(text), **kwargs)
+            await _call_with_connect_retry(
+                lambda: target.edit_message_text(strip_sentinels(text), **kwargs),
+                action="Edit plain message",
+            )
         except RetryAfter:
             raise
         except Exception as e:
@@ -179,18 +240,24 @@ async def safe_send(
     if message_thread_id is not None:
         kwargs.setdefault("message_thread_id", message_thread_id)
     try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=_ensure_formatted(text),
-            parse_mode=PARSE_MODE,
-            **kwargs,
+        await _call_with_connect_retry(
+            lambda: bot.send_message(
+                chat_id=chat_id,
+                text=_ensure_formatted(text),
+                parse_mode=PARSE_MODE,
+                **kwargs,
+            ),
+            action=f"Send formatted message to {chat_id}",
         )
     except RetryAfter:
         raise
     except Exception:
         try:
-            await bot.send_message(
-                chat_id=chat_id, text=strip_sentinels(text), **kwargs
+            await _call_with_connect_retry(
+                lambda: bot.send_message(
+                    chat_id=chat_id, text=strip_sentinels(text), **kwargs
+                ),
+                action=f"Send plain message to {chat_id}",
             )
         except RetryAfter:
             raise

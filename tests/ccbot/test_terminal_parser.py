@@ -6,7 +6,9 @@ from ccbot.terminal_parser import (
     extract_bash_output,
     extract_interactive_content,
     is_interactive_ui,
+    parse_public_progress_block,
     parse_status_line,
+    parse_status_update,
     strip_pane_chrome,
 )
 
@@ -61,6 +63,32 @@ class TestParseStatusLine:
 
     def test_uses_fixture(self, sample_pane_status_line: str):
         assert parse_status_line(sample_pane_status_line) == "Reading file src/main.py"
+
+
+class TestParseStatusUpdate:
+    def test_prefers_recent_public_progress_block(self, chrome: str):
+        pane = (
+            "• Searched site:msci.com \"MSCI USA Momentum Index\"\n"
+            "✻ Searching the web\n"
+            f"{chrome}"
+        )
+        assert parse_status_update(pane) == (
+            "• Searched site:msci.com \"MSCI USA Momentum Index\"\n\n"
+            "⏳ Searching the web"
+        )
+
+    def test_extracts_multiline_progress_block(self, chrome: str):
+        pane = (
+            "• Explored\n"
+            "  └ Read market_data.py\n"
+            "✻ Reading file\n"
+            f"{chrome}"
+        )
+        assert parse_public_progress_block(pane) == "• Explored\n  └ Read market_data.py"
+
+    def test_falls_back_to_spinner_when_no_public_progress(self, chrome: str):
+        pane = f"output\n✻ Reading file src/main.py\n{chrome}"
+        assert parse_status_update(pane) == "Reading file src/main.py"
 
 
 # ── extract_interactive_content ──────────────────────────────────────────
