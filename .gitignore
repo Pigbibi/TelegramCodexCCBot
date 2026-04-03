@@ -52,6 +52,8 @@ coverage.xml
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -69,3 +71,14 @@ venv.bak/
 # Project specific
 .uv/
 uv.lock
+.claude/
+.ruff_cache/
+*.log
+
+# Local runtime state / secrets
+.ccbot/
+.codex/
+state.json
+session_map.json
+monitor_state.json
+hooks.json
