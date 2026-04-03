@@ -79,7 +79,9 @@ def _canonical_session_id(session_id: str) -> str:
 
 def _session_ids_match(left: str, right: str) -> bool:
     """Return whether two session ids refer to the same Codex session."""
-    return bool(left and right and _canonical_session_id(left) == _canonical_session_id(right))
+    return bool(
+        left and right and _canonical_session_id(left) == _canonical_session_id(right)
+    )
 
 
 @dataclass

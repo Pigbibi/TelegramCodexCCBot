@@ -9,7 +9,9 @@ from ccbot.handlers import message_sender
 
 
 @pytest.mark.asyncio
-async def test_safe_reply_retries_connect_error(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_safe_reply_retries_connect_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     reply = AsyncMock(
         side_effect=[
             NetworkError("httpx.ConnectError: All connection attempts failed"),

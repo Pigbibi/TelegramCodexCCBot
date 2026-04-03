@@ -217,14 +217,20 @@ class TestHiddenSessions:
         payload = [
             {"cwd": str(project_dir)},
             {"type": "summary", "summary": "Archived"},
-            {"type": "message", "role": "user", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "text", "text": "hi"}],
+            },
         ]
         session_file.write_text(
             "\n".join(json.dumps(item) for item in payload) + "\n",
             encoding="utf-8",
         )
 
-        get_session_direct = AsyncMock(side_effect=AssertionError("unexpected fallback"))
+        get_session_direct = AsyncMock(
+            side_effect=AssertionError("unexpected fallback")
+        )
         monkeypatch.setattr(mgr, "_get_session_direct", get_session_direct)
 
         sessions = await mgr.list_sessions_for_directory(str(project_dir))
@@ -255,7 +261,9 @@ class TestHiddenSessions:
         )
 
         monkeypatch.setattr(config, "codex_projects_path", default_root)
-        monkeypatch.setattr(session_module, "list_account_homes", lambda: [account_home])
+        monkeypatch.setattr(
+            session_module, "list_account_homes", lambda: [account_home]
+        )
 
         session = await mgr._get_session_direct(
             "sid-1",
@@ -338,9 +346,7 @@ class TestHasBoundThreadForSession:
 
     def test_matches_rollout_and_uuid_forms(self, mgr: SessionManager) -> None:
         mgr.bind_thread(100, 42, "@3")
-        mgr.get_window_state("@3").session_id = (
-            "019d5122-1b8c-7790-9525-6d21a3c5bb94"
-        )
+        mgr.get_window_state("@3").session_id = "019d5122-1b8c-7790-9525-6d21a3c5bb94"
 
         assert (
             mgr.has_bound_thread_for_session(

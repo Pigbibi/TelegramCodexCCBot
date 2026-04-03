@@ -109,7 +109,7 @@ class TestStatusPollerSettingsDetection:
         mock_window = MagicMock()
         mock_window.window_id = window_id
         pane = (
-            "• Searched site:msci.com \\\"MSCI USA Momentum Index\\\"\n"
+            '• Searched site:msci.com \\"MSCI USA Momentum Index\\"\n'
             "✻ Searching the web\n"
             "──────────────────────────────────────\n"
             "❯ \n"
@@ -140,7 +140,7 @@ class TestStatusPollerSettingsDetection:
             assert (
                 mock_enqueue_status.call_args.args[3]
                 == '• Searched site:msci.com \\"MSCI USA Momentum Index\\"\n\n'
-                '⏳ Searching the web'
+                "⏳ Searching the web"
             )
 
     @pytest.mark.asyncio

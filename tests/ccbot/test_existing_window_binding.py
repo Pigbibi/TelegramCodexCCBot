@@ -73,7 +73,9 @@ class TestExistingWindowBinding:
 
             await text_handler(update, context)
 
-        safe_reply.assert_awaited_once_with(update.message, "pick dir", reply_markup="kbd")
+        safe_reply.assert_awaited_once_with(
+            update.message, "pick dir", reply_markup="kbd"
+        )
         assert context.user_data["_pending_thread_id"] == 42
         assert context.user_data["_pending_thread_text"] == "hi"
 

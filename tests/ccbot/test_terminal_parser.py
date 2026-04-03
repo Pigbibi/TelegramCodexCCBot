@@ -68,23 +68,19 @@ class TestParseStatusLine:
 class TestParseStatusUpdate:
     def test_prefers_recent_public_progress_block(self, chrome: str):
         pane = (
-            "• Searched site:msci.com \"MSCI USA Momentum Index\"\n"
+            '• Searched site:msci.com "MSCI USA Momentum Index"\n'
             "✻ Searching the web\n"
             f"{chrome}"
         )
         assert parse_status_update(pane) == (
-            "• Searched site:msci.com \"MSCI USA Momentum Index\"\n\n"
-            "⏳ Searching the web"
+            '• Searched site:msci.com "MSCI USA Momentum Index"\n\n⏳ Searching the web'
         )
 
     def test_extracts_multiline_progress_block(self, chrome: str):
-        pane = (
-            "• Explored\n"
-            "  └ Read market_data.py\n"
-            "✻ Reading file\n"
-            f"{chrome}"
+        pane = f"• Explored\n  └ Read market_data.py\n✻ Reading file\n{chrome}"
+        assert (
+            parse_public_progress_block(pane) == "• Explored\n  └ Read market_data.py"
         )
-        assert parse_public_progress_block(pane) == "• Explored\n  └ Read market_data.py"
 
     def test_falls_back_to_spinner_when_no_public_progress(self, chrome: str):
         pane = f"output\n✻ Reading file src/main.py\n{chrome}"
