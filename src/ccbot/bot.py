@@ -1410,6 +1410,7 @@ async def _create_and_bind_window(
     pending_thread_id: int | None,
     resume_session_id: str | None = None,
     account_name: str | None = None,
+    answer_callback: bool = True,
 ) -> None:
     """Create a tmux window, bind it to a topic, and forward pending text.
 
@@ -1549,10 +1550,11 @@ async def _create_and_bind_window(
         if pending_thread_id is not None and context.user_data is not None:
             context.user_data.pop("_pending_thread_id", None)
             context.user_data.pop("_pending_thread_text", None)
-    try:
-        await query.answer("Created" if success else "Failed")
-    except Exception:
-        logger.debug("Callback query answer skipped: query expired")
+    if answer_callback:
+        try:
+            await query.answer("Created" if success else "Failed")
+        except Exception:
+            logger.debug("Callback query answer skipped: query expired")
 
 
 # --- Callback query handler ---
@@ -1743,6 +1745,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await query.answer("Stale browser (topic mismatch)", show_alert=True)
             return
 
+        callback_answered = False
+        try:
+            await query.answer("Looking for sessions...")
+            callback_answered = True
+        except BadRequest as exc:
+            logger.debug(
+                "Directory confirm callback expired before acknowledgement: %s",
+                exc,
+            )
+
+        await safe_edit(
+            query,
+            "⏳ Looking for existing sessions in this directory...",
+        )
+
         clear_browse_state(context.user_data)
 
         # Check for existing sessions in this directory
@@ -1757,12 +1774,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 context.user_data["_selected_path"] = selected_path
             text, keyboard = build_session_picker(sessions)
             await safe_edit(query, text, reply_markup=keyboard)
-            await query.answer()
             return
 
         # No existing sessions — create new window directly
         await _create_and_bind_window(
-            query, context, user, selected_path, pending_thread_id
+            query,
+            context,
+            user,
+            selected_path,
+            pending_thread_id,
+            answer_callback=not callback_answered,
         )
 
     elif data == CB_DIR_CANCEL:

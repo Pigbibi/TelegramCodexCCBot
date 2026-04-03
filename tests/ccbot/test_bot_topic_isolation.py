@@ -78,8 +78,48 @@ class TestSessionPickerIsolation:
             update.effective_user,
             "/tmp/project",
             42,
+            answer_callback=False,
         )
         build_picker.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dir_confirm_acknowledges_callback_before_long_session_scan(self):
+        """Directory confirm should acknowledge Telegram before scanning sessions."""
+        update, query = _make_callback_update(CB_DIR_CONFIRM)
+        context = _make_context()
+        context.user_data = {
+            BROWSE_PATH_KEY: "/tmp/project",
+            "_pending_thread_id": 42,
+        }
+
+        with (
+            patch("ccbot.bot.is_user_allowed", return_value=True),
+            patch("ccbot.bot._get_thread_id", return_value=42),
+            patch("ccbot.bot.session_manager") as mock_sm,
+            patch(
+                "ccbot.bot._create_and_bind_window", new_callable=AsyncMock
+            ) as create,
+            patch("ccbot.bot.safe_edit", new_callable=AsyncMock) as safe_edit,
+        ):
+            mock_sm.list_sessions_for_directory = AsyncMock(return_value=[])
+
+            from ccbot.bot import callback_handler
+
+            await callback_handler(update, context)
+
+        assert query.answer.await_count == 1
+        assert query.answer.await_args_list[0].args == ("Looking for sessions...",)
+        safe_edit.assert_any_await(
+            query, "⏳ Looking for existing sessions in this directory..."
+        )
+        create.assert_called_once_with(
+            query,
+            context,
+            update.effective_user,
+            "/tmp/project",
+            42,
+            answer_callback=False,
+        )
 
     @pytest.mark.asyncio
     async def test_session_select_rejects_session_already_active_elsewhere(self):
