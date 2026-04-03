@@ -170,6 +170,20 @@ class TestHiddenSessions:
         assert mgr.is_session_hidden("sid-1") is False
         assert mgr.unhide_session("sid-1") is False
 
+    def test_hide_and_unhide_session_canonicalizes_rollout_ids(
+        self, mgr: SessionManager
+    ) -> None:
+        bare_id = "019d5147-fb09-7873-8207-3209213c574b"
+        rollout_id = f"rollout-2026-04-03T10-59-25-{bare_id}"
+
+        assert mgr.hide_session(bare_id) is True
+        assert bare_id in mgr.hidden_session_ids
+        assert rollout_id not in mgr.hidden_session_ids
+        assert mgr.is_session_hidden(rollout_id) is True
+
+        assert mgr.unhide_session(rollout_id) is True
+        assert mgr.is_session_hidden(bare_id) is False
+
     @pytest.mark.asyncio
     async def test_list_sessions_for_directory_skips_hidden_sessions(
         self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -200,6 +214,36 @@ class TestHiddenSessions:
 
         assert [session.session_id for session in sessions] == ["visible-session"]
         assert sessions[0].message_count == 0
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_skips_hidden_rollout_session(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+
+        session_dir = codex_root / mgr._encode_cwd(str(project_dir))
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        bare_id = "019d5147-fb09-7873-8207-3209213c574b"
+        rollout_id = f"rollout-2026-04-03T10-59-25-{bare_id}"
+
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "Hidden"},
+        ]
+        (session_dir / f"{rollout_id}.jsonl").write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        mgr.hide_session(bare_id)
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert sessions == []
 
     @pytest.mark.asyncio
     async def test_list_sessions_for_directory_uses_matched_file_directly(
@@ -238,6 +282,60 @@ class TestHiddenSessions:
         assert [session.session_id for session in sessions] == ["archived-session"]
         assert sessions[0].message_count == 0
         get_session_direct.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_reads_rollout_user_preview(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+
+        session_dir = codex_root / mgr._encode_cwd(str(project_dir))
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = (
+            session_dir
+            / "rollout-2026-04-03T17-59-47-019d52c8-d90d-7f72-9062-45cf0f71f97e.jsonl"
+        )
+        payload = [
+            {
+                "timestamp": "2026-04-03T09:59:52.972Z",
+                "type": "session_meta",
+                "payload": {
+                    "id": "019d52c8-d90d-7f72-9062-45cf0f71f97e",
+                    "cwd": str(project_dir),
+                },
+            },
+            {
+                "timestamp": "2026-04-03T09:59:52.974Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "<environment_context>\n  <cwd>/tmp/project</cwd>\n</environment_context>",
+                        }
+                    ],
+                },
+            },
+            {
+                "timestamp": "2026-04-03T09:59:53.256Z",
+                "type": "event_msg",
+                "payload": {"type": "user_message", "message": "你好 codex"},
+            },
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item, ensure_ascii=False) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert [session.summary for session in sessions] == ["你好 codex"]
 
     @pytest.mark.asyncio
     async def test_get_session_direct_searches_account_homes(

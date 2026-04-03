@@ -84,6 +84,41 @@ def _session_ids_match(left: str, right: str) -> bool:
     )
 
 
+def _extract_user_text(data: dict[str, Any]) -> str:
+    """Extract user text from both legacy and rollout transcript entries."""
+    if TranscriptParser.is_user_message(data):
+        parsed = TranscriptParser.parse_message(data)
+        if parsed and parsed.text.strip():
+            return parsed.text.strip()
+
+    payload = data.get("payload")
+    if isinstance(payload, dict):
+        if payload.get("type") == "user_message":
+            message = payload.get("message", "")
+            if isinstance(message, str):
+                return message.strip()
+
+        if payload.get("type") == "message" and payload.get("role") == "user":
+            content = payload.get("content", [])
+            texts: list[str] = []
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, str) and item.strip():
+                        texts.append(item.strip())
+                    elif isinstance(item, dict):
+                        text = item.get("text", "")
+                        if isinstance(text, str) and text.strip():
+                            texts.append(text.strip())
+            text = "\n".join(texts).strip()
+            if text.startswith("<environment_context>") or text.startswith(
+                "# AGENTS.md instructions for "
+            ):
+                return ""
+            return text
+
+    return ""
+
+
 @dataclass
 class WindowState:
     """Persistent state for a tmux window."""
@@ -209,7 +244,7 @@ class SessionManager:
                     k: int(v) for k, v in state.get("group_chat_ids", {}).items()
                 }
                 self.hidden_session_ids = {
-                    session_id
+                    _canonical_session_id(session_id)
                     for session_id in state.get("hidden_session_ids", [])
                     if isinstance(session_id, str) and session_id
                 }
@@ -722,25 +757,28 @@ class SessionManager:
 
     def hide_session(self, session_id: str) -> bool:
         """Hide one closed session from the resume picker."""
-        if not session_id or session_id in self.hidden_session_ids:
+        canonical_id = _canonical_session_id(session_id)
+        if not canonical_id or canonical_id in self.hidden_session_ids:
             return False
-        self.hidden_session_ids.add(session_id)
+        self.hidden_session_ids.add(canonical_id)
         self._save_state()
-        logger.info("Hid closed session from picker: %s", session_id)
+        logger.info("Hid closed session from picker: %s", canonical_id)
         return True
 
     def unhide_session(self, session_id: str) -> bool:
         """Make one session visible in the resume picker again."""
-        if not session_id or session_id not in self.hidden_session_ids:
+        canonical_id = _canonical_session_id(session_id)
+        if not canonical_id or canonical_id not in self.hidden_session_ids:
             return False
-        self.hidden_session_ids.remove(session_id)
+        self.hidden_session_ids.remove(canonical_id)
         self._save_state()
-        logger.info("Unhid session in picker: %s", session_id)
+        logger.info("Unhid session in picker: %s", canonical_id)
         return True
 
     def is_session_hidden(self, session_id: str) -> bool:
         """Return whether a session is currently hidden from the resume picker."""
-        return session_id in self.hidden_session_ids
+        canonical_id = _canonical_session_id(session_id)
+        return bool(canonical_id and canonical_id in self.hidden_session_ids)
 
     def remove_window_state(self, window_id: str) -> None:
         """Remove all persisted state associated with a tmux window."""
@@ -796,7 +834,9 @@ class SessionManager:
         state.session_id = session_id
         state.cwd = cwd
         state.usage_limit_exceeded = False
-        self.hidden_session_ids.discard(session_id)
+        canonical_id = _canonical_session_id(session_id)
+        if canonical_id:
+            self.hidden_session_ids.discard(canonical_id)
         if window_name:
             state.window_name = window_name
             self.window_display_names[window_id] = window_name
@@ -889,10 +929,10 @@ class SessionManager:
                             if s:
                                 summary = s
                         # Track last user message as fallback
-                        elif TranscriptParser.is_user_message(data):
-                            parsed = TranscriptParser.parse_message(data)
-                            if parsed and parsed.text.strip():
-                                last_user_msg = parsed.text.strip()
+                        else:
+                            user_text = _extract_user_text(data)
+                            if user_text:
+                                last_user_msg = user_text
                     except json.JSONDecodeError:
                         continue
         except OSError:
@@ -934,10 +974,10 @@ class SessionManager:
                             if s:
                                 summary = s
                                 break
-                        elif TranscriptParser.is_user_message(data):
-                            parsed = TranscriptParser.parse_message(data)
-                            if parsed and parsed.text.strip():
-                                last_user_msg = parsed.text.strip()
+                        else:
+                            user_text = _extract_user_text(data)
+                            if user_text:
+                                last_user_msg = user_text
                                 break
                     except json.JSONDecodeError:
                         continue
