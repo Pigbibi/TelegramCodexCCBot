@@ -131,6 +131,50 @@ launchctl print "gui/$(id -u)/io.github.telegramcodexccbot" | sed -n '1,40p'
 tail -n 50 ~/.ccbot/logs/ccbot.err.log
 ```
 
+## Quick deploy on Linux / VPS
+
+For a Linux workstation or a VPS with systemd:
+
+```bash
+git clone https://github.com/Pigbibi/TelegramCodexCCBot.git
+cd TelegramCodexCCBot
+chmod +x scripts/bootstrap-linux.sh
+./scripts/bootstrap-linux.sh
+```
+
+The Linux helper:
+
+- runs `uv sync`
+- creates `~/.ccbot/.env` from `.env.example` if needed
+- installs `ccbot hook --install`
+- writes `~/.ccbot/bin/ccbot-launch`
+- writes a user service at `~/.config/systemd/user/io.github.telegramcodexccbot.service`
+
+After that:
+
+1. edit `~/.ccbot/.env`
+2. run `codex login`
+3. start the service if it was not auto-started:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now io.github.telegramcodexccbot.service
+```
+
+On a VPS, if you want the service to keep running after reboot without an
+interactive login session:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+Check status:
+
+```bash
+systemctl --user status io.github.telegramcodexccbot.service --no-pager
+tail -n 50 ~/.ccbot/logs/ccbot.err.log
+```
+
 ## Configuration
 
 ### 1. Create a Telegram bot

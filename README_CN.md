@@ -130,6 +130,49 @@ launchctl print "gui/$(id -u)/io.github.telegramcodexccbot" | sed -n '1,40p'
 tail -n 50 ~/.ccbot/logs/ccbot.err.log
 ```
 
+## Linux / VPS 快速部署
+
+如果目标机是 Linux 或带 systemd 的 VPS，可以直接这样装：
+
+```bash
+git clone https://github.com/Pigbibi/TelegramCodexCCBot.git
+cd TelegramCodexCCBot
+chmod +x scripts/bootstrap-linux.sh
+./scripts/bootstrap-linux.sh
+```
+
+这个脚本会：
+
+- 执行 `uv sync`
+- 如果需要，从 `.env.example` 生成 `~/.ccbot/.env`
+- 执行 `ccbot hook --install`
+- 写入 `~/.ccbot/bin/ccbot-launch`
+- 生成用户级 systemd service：`~/.config/systemd/user/io.github.telegramcodexccbot.service`
+
+后续步骤：
+
+1. 修改 `~/.ccbot/.env`
+2. 执行 `codex login`
+3. 如果脚本没有自动拉起服务，再手动执行：
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now io.github.telegramcodexccbot.service
+```
+
+如果是 VPS，希望重启后不用登录也能继续跑，再执行一次：
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+查看服务状态：
+
+```bash
+systemctl --user status io.github.telegramcodexccbot.service --no-pager
+tail -n 50 ~/.ccbot/logs/ccbot.err.log
+```
+
 ## 配置
 
 ### 1）先创建 Telegram Bot
