@@ -74,6 +74,62 @@ cd TelegramCodexCCBot
 uv sync
 ```
 
+## 新电脑快速部署（macOS）
+
+新电脑或全新环境可以直接这样装：
+
+```bash
+git clone https://github.com/Pigbibi/TelegramCodexCCBot.git
+cd TelegramCodexCCBot
+chmod +x scripts/bootstrap-macos.sh
+./scripts/bootstrap-macos.sh
+```
+
+脚本会做这些事：
+
+- 执行 `uv sync`
+- 如果 `~/.ccbot/.env` 不存在，就从 `.env.example` 生成一份
+- 在当前生效的 Codex home 里执行 `ccbot hook --install`
+- 生成可复用的 `~/.ccbot/bin/ccbot-launch`
+- 生成一份 macOS 的 LaunchAgent plist
+
+脚本跑完后，通常只需要处理这几项：
+
+1. `TELEGRAM_BOT_TOKEN`
+2. `ALLOWED_USERS`
+3. 如果你要语音转文字，再补 `OPENAI_API_KEY`
+4. 执行 `codex login`
+
+这个项目**没有单独的 `GPT_SUBSCRIPTION=` 环境变量**。
+它直接复用本机 Codex 登录态：
+
+```bash
+codex login
+```
+
+如果你平时有多账号切换：
+
+```bash
+~/.ccbot/bin/codex-account save main
+~/.ccbot/bin/codex-account save backup
+~/.ccbot/bin/codex-account use main
+```
+
+如果 `~/.ccbot/.env` 里还是占位值，脚本只会写好 launchd 文件，
+不会自动启动服务。改完 `.env` 后再手动执行：
+
+```bash
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/io.github.telegramcodexccbot.plist
+launchctl kickstart -k "gui/$(id -u)/io.github.telegramcodexccbot"
+```
+
+查看服务状态：
+
+```bash
+launchctl print "gui/$(id -u)/io.github.telegramcodexccbot" | sed -n '1,40p'
+tail -n 50 ~/.ccbot/logs/ccbot.err.log
+```
+
 ## 配置
 
 ### 1）先创建 Telegram Bot
@@ -91,6 +147,8 @@ ALLOWED_USERS=your_telegram_user_id
 CCBOT_CODEX_COMMAND=codex
 CCBOT_SHOW_COMMENTARY_MESSAGES=true
 ```
+
+多数情况下，真正需要手改的就这一份 `.env`。
 
 ### 必填变量
 

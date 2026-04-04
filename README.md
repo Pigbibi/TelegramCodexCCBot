@@ -74,6 +74,63 @@ cd TelegramCodexCCBot
 uv sync
 ```
 
+## Quick deploy on macOS
+
+For a new Mac or a fresh local setup:
+
+```bash
+git clone https://github.com/Pigbibi/TelegramCodexCCBot.git
+cd TelegramCodexCCBot
+chmod +x scripts/bootstrap-macos.sh
+./scripts/bootstrap-macos.sh
+```
+
+The script does the following:
+
+- run `uv sync`
+- create `~/.ccbot/.env` from `.env.example` if missing
+- install `ccbot hook --install` into the active Codex home
+- generate a reusable `~/.ccbot/bin/ccbot-launch`
+- generate a LaunchAgent plist for macOS
+
+Required local setup after the script runs:
+
+1. `TELEGRAM_BOT_TOKEN`
+2. `ALLOWED_USERS`
+3. optional `OPENAI_API_KEY` if you want voice transcription
+4. run `codex login`
+
+This project does not use a separate `GPT_SUBSCRIPTION=` env var.
+It reuses the local Codex login state:
+
+```bash
+codex login
+```
+
+If you use multiple Codex accounts:
+
+```bash
+~/.ccbot/bin/codex-account save main
+~/.ccbot/bin/codex-account save backup
+~/.ccbot/bin/codex-account use main
+```
+
+If `~/.ccbot/.env` still contains placeholder values, the script will write the
+launchd files but will not start the service. After editing `.env`, start it
+manually:
+
+```bash
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/io.github.telegramcodexccbot.plist
+launchctl kickstart -k "gui/$(id -u)/io.github.telegramcodexccbot"
+```
+
+Check status:
+
+```bash
+launchctl print "gui/$(id -u)/io.github.telegramcodexccbot" | sed -n '1,40p'
+tail -n 50 ~/.ccbot/logs/ccbot.err.log
+```
+
 ## Configuration
 
 ### 1. Create a Telegram bot
@@ -91,6 +148,8 @@ ALLOWED_USERS=your_telegram_user_id
 CCBOT_CODEX_COMMAND=codex
 CCBOT_SHOW_COMMENTARY_MESSAGES=true
 ```
+
+For most setups, this is the only file you need to edit.
 
 ### Required variables
 
