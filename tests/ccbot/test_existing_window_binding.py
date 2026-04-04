@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from telegram.error import TelegramError
 
 from ccbot.handlers.callback_data import CB_WIN_BIND
 
@@ -113,3 +114,41 @@ class TestExistingWindowBinding:
             "This window has no tracked Codex session yet. Please choose New Session instead.",
         )
         assert query.answer.await_args.kwargs["show_alert"] is True
+
+    @pytest.mark.asyncio
+    async def test_bound_topic_continues_when_typing_action_fails(self):
+        update = _make_text_update("hi")
+        update.message.chat.send_action = AsyncMock(
+            side_effect=TelegramError("bad gateway")
+        )
+        context = _make_context()
+
+        fake_window = MagicMock()
+        fake_window.window_id = "@1"
+        fake_window.window_name = "Projects"
+        fake_window.cwd = "/tmp/project"
+
+        with (
+            patch("ccbot.bot.is_user_allowed", return_value=True),
+            patch("ccbot.bot._get_thread_id", return_value=42),
+            patch("ccbot.bot.session_manager") as mock_sm,
+            patch("ccbot.bot.tmux_manager") as mock_tmux,
+            patch(
+                "ccbot.bot.enqueue_status_update", new_callable=AsyncMock
+            ) as enqueue_status_update,
+            patch("ccbot.bot.safe_reply", new_callable=AsyncMock) as safe_reply,
+            patch("ccbot.bot._cancel_bash_capture"),
+        ):
+            mock_sm.get_window_for_thread.return_value = "@1"
+            mock_sm.window_has_usage_limit_exceeded = AsyncMock(return_value=False)
+            mock_sm.send_to_window = AsyncMock(return_value=(True, "Sent"))
+            mock_tmux.find_window_by_id = AsyncMock(return_value=fake_window)
+            mock_tmux.capture_pane = AsyncMock(return_value="")
+
+            from ccbot.bot import text_handler
+
+            await text_handler(update, context)
+
+        enqueue_status_update.assert_awaited_once()
+        mock_sm.send_to_window.assert_awaited_once_with("@1", "hi")
+        safe_reply.assert_not_awaited()

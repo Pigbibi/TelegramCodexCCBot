@@ -42,6 +42,7 @@ from pathlib import Path
 from telegram import (
     Bot,
     BotCommand,
+    Chat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaDocument,
@@ -179,6 +180,15 @@ SESSION_STILL_RUNNING_MESSAGE = f"The {PRODUCT_NAME} session is still running in
 HELP_COMMAND_DESCRIPTION = f"↗ Show {PRODUCT_NAME} help"
 ESC_COMMAND_DESCRIPTION = f"Send Escape to interrupt {PRODUCT_NAME}"
 USAGE_COMMAND_DESCRIPTION = f"Show {PRODUCT_NAME} usage remaining"
+
+
+async def _safe_send_typing_action(chat: Chat, *, source: str) -> None:
+    """Send typing action best-effort without aborting the handler."""
+    try:
+        await chat.send_action(ChatAction.TYPING)
+    except TelegramError as exc:
+        logger.debug("Failed to send typing action (%s): %s", source, exc)
+
 
 # Codex commands shown in bot menu (forwarded via tmux)
 CC_COMMANDS: dict[str, str] = {
@@ -710,7 +720,7 @@ async def forward_command_handler(
     logger.info(
         "Forwarding command %s to window %s (user=%d)", cc_slash, display, user.id
     )
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await _safe_send_typing_action(update.message.chat, source="history_command")
     success, message = await session_manager.send_to_window(wid, cc_slash)
     if success:
         await safe_reply(update.message, f"⚡ [{display}] Sent: {cc_slash}")
@@ -903,7 +913,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         text_to_send = f"(image attached: {file_path})"
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await _safe_send_typing_action(update.message.chat, source="photo_handler")
     clear_status_msg_info(user.id, thread_id)
 
     if await session_manager.window_has_usage_limit_exceeded(wid):
@@ -991,7 +1001,7 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await safe_reply(update.message, f"⚠ Transcription failed: {e}")
         return
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await _safe_send_typing_action(update.message.chat, source="voice_handler")
     clear_status_msg_info(user.id, thread_id)
 
     if await session_manager.window_has_usage_limit_exceeded(wid):
@@ -1356,7 +1366,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    await update.message.chat.send_action(ChatAction.TYPING)
+    await _safe_send_typing_action(update.message.chat, source="text_handler")
     await enqueue_status_update(context.bot, user.id, wid, None, thread_id=thread_id)
 
     # Cancel any running bash capture — new message pushes pane content down
