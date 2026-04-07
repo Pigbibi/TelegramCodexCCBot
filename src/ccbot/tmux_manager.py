@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,22 @@ from .account_manager import ensure_account_home
 from .config import SENSITIVE_ENV_VARS, config
 
 logger = logging.getLogger(__name__)
+
+_UUID_SUFFIX_RE = re.compile(
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+)
+
+
+def _resume_target_id(session_id: str) -> str:
+    """Return the identifier accepted by current Codex CLI resume.
+
+    Newer Codex CLIs expect a bare UUID, while ccbot often tracks session ids as
+    rollout-prefixed JSONL stems. Strip the rollout prefix when present.
+    """
+    match = _UUID_SUFFIX_RE.search(session_id)
+    if match:
+        return match.group(1)
+    return session_id
 
 
 @dataclass
@@ -388,7 +405,7 @@ class TmuxManager:
             work_dir: Working directory for the new window
             window_name: Optional window name (defaults to directory name)
             start_codex: Whether to start the configured Codex command
-            resume_session_id: If set, append --resume <id> to the command
+            resume_session_id: If set, append `resume <id>` to the command
 
         Returns:
             Tuple of (success, message, window_name, window_id)
@@ -431,7 +448,8 @@ class TmuxManager:
                     if pane:
                         cmd = config.codex_command
                         if resume_session_id:
-                            cmd = f"{cmd} --resume {resume_session_id}"
+                            resume_target = _resume_target_id(resume_session_id)
+                            cmd = f"{cmd} resume {shlex.quote(resume_target)}"
                         if account_name:
                             account_home = ensure_account_home(account_name)
                             cmd = (

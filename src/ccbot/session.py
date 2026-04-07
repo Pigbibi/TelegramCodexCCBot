@@ -676,12 +676,16 @@ class SessionManager:
                     self.window_display_names[window_id] = new_wname
                     changed = True
 
-        # Clean up window_states entries not in current session_map.
-        stale_wids = [w for w in self.window_states if w and w not in valid_wids]
-        for wid in stale_wids:
-            logger.info("Removing stale window_state: %s", wid)
-            del self.window_states[wid]
-            changed = True
+        # Clean up window_states entries not in current session_map only when the
+        # hook has actually produced entries for this tmux session. Some Codex
+        # startups/resumes can keep session_map empty for a while (or forever on
+        # failure), and eagerly deleting here breaks already-bound topics.
+        if valid_wids:
+            stale_wids = [w for w in self.window_states if w and w not in valid_wids]
+            for wid in stale_wids:
+                logger.info("Removing stale window_state: %s", wid)
+                del self.window_states[wid]
+                changed = True
 
         if changed:
             self._save_state()
