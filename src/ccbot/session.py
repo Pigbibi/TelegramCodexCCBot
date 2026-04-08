@@ -193,6 +193,8 @@ class SessionManager:
     group_chat_ids: dict[str, int] = field(default_factory=dict)
     # Closed sessions that should be hidden from the resume picker by default.
     hidden_session_ids: set[str] = field(default_factory=set)
+    # Sessions that were ever managed through a Telegram topic.
+    topic_managed_session_ids: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self._load_state()
@@ -210,6 +212,7 @@ class SessionManager:
             "window_display_names": self.window_display_names,
             "group_chat_ids": self.group_chat_ids,
             "hidden_session_ids": sorted(self.hidden_session_ids),
+            "topic_managed_session_ids": sorted(self.topic_managed_session_ids),
         }
         atomic_write_json(config.state_file, state)
         logger.debug("State saved to %s", config.state_file)
@@ -248,6 +251,11 @@ class SessionManager:
                     for session_id in state.get("hidden_session_ids", [])
                     if isinstance(session_id, str) and session_id
                 }
+                self.topic_managed_session_ids = {
+                    _canonical_session_id(session_id)
+                    for session_id in state.get("topic_managed_session_ids", [])
+                    if isinstance(session_id, str) and session_id
+                }
 
                 # Detect old format: keys that don't look like window IDs
                 needs_migration = False
@@ -279,6 +287,7 @@ class SessionManager:
                 self.window_display_names = {}
                 self.group_chat_ids = {}
                 self.hidden_session_ids = set()
+                self.topic_managed_session_ids = set()
                 pass
 
     async def resolve_stale_ids(self) -> None:
@@ -784,6 +793,43 @@ class SessionManager:
         canonical_id = _canonical_session_id(session_id)
         return bool(canonical_id and canonical_id in self.hidden_session_ids)
 
+    def track_topic_managed_session(self, session_id: str) -> bool:
+        """Remember that a session was once bound to a Telegram topic."""
+        canonical_id = _canonical_session_id(session_id)
+        if not canonical_id or canonical_id in self.topic_managed_session_ids:
+            return False
+        self.topic_managed_session_ids.add(canonical_id)
+        self._save_state()
+        logger.info("Tracked topic-managed session: %s", canonical_id)
+        return True
+
+    def is_topic_managed_session(self, session_id: str) -> bool:
+        """Return whether a session was ever managed through a Telegram topic."""
+        canonical_id = _canonical_session_id(session_id)
+        return bool(canonical_id and canonical_id in self.topic_managed_session_ids)
+
+    def _window_has_bound_thread(self, window_id: str) -> bool:
+        """Return whether any current topic points at this tmux window."""
+        return any(
+            bound_window_id == window_id
+            for _user_id, _thread_id, bound_window_id in self.iter_thread_bindings()
+        )
+
+    @staticmethod
+    def _is_account_home_transcript(file_path: Path) -> bool:
+        """Return whether a transcript lives under a ccbot per-account CODEX_HOME."""
+        try:
+            resolved = file_path.resolve()
+        except OSError:
+            resolved = file_path
+        for account_home in list_account_homes():
+            try:
+                if resolved.is_relative_to(account_home.resolve()):
+                    return True
+            except OSError:
+                continue
+        return False
+
     def remove_window_state(self, window_id: str) -> None:
         """Remove all persisted state associated with a tmux window."""
         changed = False
@@ -841,6 +887,8 @@ class SessionManager:
         canonical_id = _canonical_session_id(session_id)
         if canonical_id:
             self.hidden_session_ids.discard(canonical_id)
+            if self._window_has_bound_thread(window_id):
+                self.topic_managed_session_ids.add(canonical_id)
         if window_name:
             state.window_name = window_name
             self.window_display_names[window_id] = window_name
@@ -1043,6 +1091,15 @@ class SessionManager:
             session_id = f.stem
             if self.is_session_hidden(session_id):
                 continue
+            if not self.has_bound_thread_for_session(session_id) and (
+                self.is_topic_managed_session(session_id)
+                or self._is_account_home_transcript(f)
+            ):
+                canonical_id = _canonical_session_id(session_id)
+                if canonical_id:
+                    self.topic_managed_session_ids.add(canonical_id)
+                self.hide_session(session_id)
+                continue
             session = await self._read_session_preview_from_file(
                 f, session_id=session_id
             )
@@ -1116,6 +1173,11 @@ class SessionManager:
         if user_id not in self.thread_bindings:
             self.thread_bindings[user_id] = {}
         self.thread_bindings[user_id][thread_id] = window_id
+        state = self.window_states.get(window_id)
+        if state and state.session_id:
+            canonical_id = _canonical_session_id(state.session_id)
+            if canonical_id:
+                self.topic_managed_session_ids.add(canonical_id)
         if window_name:
             self.window_display_names[window_id] = window_name
         self._save_state()

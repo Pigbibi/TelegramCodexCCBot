@@ -38,6 +38,13 @@ class TestThreadBindings:
         result = set(mgr.iter_thread_bindings())
         assert result == {(100, 1, "@1"), (100, 2, "@2"), (200, 3, "@3")}
 
+    def test_bind_thread_tracks_topic_managed_session(self, mgr: SessionManager) -> None:
+        mgr.get_window_state("@1").session_id = "sid-1"
+
+        mgr.bind_thread(100, 1, "@1")
+
+        assert "sid-1" in mgr.topic_managed_session_ids
+
 
 class TestGroupChatId:
     """Tests for group chat_id routing (supergroup forum topic support).
@@ -159,6 +166,15 @@ class TestWindowState:
 
         assert "sid-1" not in mgr.hidden_session_ids
 
+    def test_register_session_to_window_tracks_bound_topic_session(
+        self, mgr: SessionManager
+    ) -> None:
+        mgr.bind_thread(100, 1, "@1")
+
+        mgr.register_session_to_window("@1", "sid-1", "/tmp/project")
+
+        assert "sid-1" in mgr.topic_managed_session_ids
+
 
 class TestHiddenSessions:
     def test_hide_and_unhide_session(self, mgr: SessionManager) -> None:
@@ -183,6 +199,17 @@ class TestHiddenSessions:
 
         assert mgr.unhide_session(rollout_id) is True
         assert mgr.is_session_hidden(bare_id) is False
+
+    def test_track_topic_managed_session_canonicalizes_rollout_ids(
+        self, mgr: SessionManager
+    ) -> None:
+        bare_id = "019d5147-fb09-7873-8207-3209213c574b"
+        rollout_id = f"rollout-2026-04-03T10-59-25-{bare_id}"
+
+        assert mgr.track_topic_managed_session(rollout_id) is True
+        assert bare_id in mgr.topic_managed_session_ids
+        assert mgr.is_topic_managed_session(bare_id) is True
+        assert mgr.is_topic_managed_session(rollout_id) is True
 
     @pytest.mark.asyncio
     async def test_list_sessions_for_directory_skips_hidden_sessions(
@@ -214,6 +241,35 @@ class TestHiddenSessions:
 
         assert [session.session_id for session in sessions] == ["visible-session"]
         assert sessions[0].message_count == 0
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_skips_unbound_topic_managed_sessions(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+
+        session_dir = codex_root / mgr._encode_cwd(str(project_dir))
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = session_dir / "managed-session.jsonl"
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "Managed"},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        mgr.track_topic_managed_session("managed-session")
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert sessions == []
+        assert mgr.is_session_hidden("managed-session") is True
 
     @pytest.mark.asyncio
     async def test_list_sessions_for_directory_skips_hidden_rollout_session(
@@ -336,6 +392,37 @@ class TestHiddenSessions:
         sessions = await mgr.list_sessions_for_directory(str(project_dir))
 
         assert [session.summary for session in sessions] == ["你好 codex"]
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_hides_stale_account_home_sessions(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        default_root = tmp_path / "default-codex"
+        default_root.mkdir()
+        account_home = tmp_path / "homes" / "plus1"
+        session_dir = account_home / mgr._encode_cwd(str(project_dir))
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = session_dir / "account-session.jsonl"
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "Account home"},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(config, "codex_projects_path", default_root)
+        monkeypatch.setattr(session_module, "list_account_homes", lambda: [account_home])
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert sessions == []
+        assert mgr.is_session_hidden("account-session") is True
+        assert mgr.is_topic_managed_session("account-session") is True
 
     @pytest.mark.asyncio
     async def test_get_session_direct_searches_account_homes(
