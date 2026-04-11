@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -39,6 +40,15 @@ class TestThreadBindings:
         result = set(mgr.iter_thread_bindings())
         assert result == {(100, 1, "@1"), (100, 2, "@2"), (200, 3, "@3")}
 
+    def test_iter_thread_bindings_uses_snapshot(self, mgr: SessionManager) -> None:
+        mgr.bind_thread(100, 1, "@1")
+        seen = []
+        for user_id, thread_id, window_id in mgr.iter_thread_bindings():
+            seen.append((user_id, thread_id, window_id))
+            mgr.bind_thread(100, 2, "@2")
+
+        assert seen == [(100, 1, "@1")]
+
     def test_bind_thread_tracks_topic_managed_session(
         self, mgr: SessionManager
     ) -> None:
@@ -47,6 +57,30 @@ class TestThreadBindings:
         mgr.bind_thread(100, 1, "@1")
 
         assert "sid-1" in mgr.topic_managed_session_ids
+
+
+class TestSendToWindow:
+    @pytest.mark.asyncio
+    async def test_rejects_shell_pane(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        find_window = AsyncMock(
+            return_value=SimpleNamespace(
+                window_id="@1",
+                pane_current_command="zsh",
+            )
+        )
+        send_keys = AsyncMock()
+        monkeypatch.setattr(
+            session_module.tmux_manager, "find_window_by_id", find_window
+        )
+        monkeypatch.setattr(session_module.tmux_manager, "send_keys", send_keys)
+
+        ok, message = await mgr.send_to_window("@1", "hi")
+
+        assert ok is False
+        assert "not running Codex" in message
+        send_keys.assert_not_awaited()
 
 
 class TestGroupChatId:

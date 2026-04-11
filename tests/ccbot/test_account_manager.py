@@ -47,7 +47,38 @@ def test_ensure_account_home_copies_auth_and_config(tmp_path, monkeypatch) -> No
 
     assert home == account_home_dir / "plus1"
     assert (home / "auth.json").read_text(encoding="utf-8") == '{"auth_mode":"chatgpt"}'
-    assert (home / "config.toml").read_text(encoding="utf-8") == 'model = "gpt-5.4"\n'
+    assert (home / "config.toml").read_text(encoding="utf-8") == (
+        'model = "gpt-5.4"\ncheck_for_update_on_startup = false\n'
+    )
     assert (home / "hooks.json").read_text(encoding="utf-8") == '{"hooks":{}}\n'
     assert (home / "memories").is_dir()
     assert (home / "tmp").is_dir()
+
+
+def test_ensure_account_home_writes_update_check_before_tables(
+    tmp_path, monkeypatch
+) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    account_home_dir = tmp_path / "homes"
+    codex_dir = tmp_path / "codex"
+    codex_dir.mkdir(parents=True)
+
+    account_dir = snapshot_dir / "plus1"
+    account_dir.mkdir(parents=True)
+    (account_dir / "auth.json").write_text("{}", encoding="utf-8")
+    (codex_dir / "config.toml").write_text(
+        '[notice]\nhide_full_access_warning = true\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(account_manager, "SNAPSHOT_DIR", snapshot_dir)
+    monkeypatch.setattr(account_manager, "ACCOUNT_HOME_DIR", account_home_dir)
+    monkeypatch.setattr(account_manager, "CODEX_DIR", codex_dir)
+
+    home = account_manager.ensure_account_home("plus1")
+
+    assert (home / "config.toml").read_text(encoding="utf-8") == (
+        'check_for_update_on_startup = false\n\n'
+        '[notice]\n'
+        'hide_full_access_warning = true\n'
+    )

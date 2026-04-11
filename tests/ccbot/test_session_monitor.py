@@ -187,6 +187,7 @@ class TestReadNewLinesOffsetRecovery:
         }
 
         with (
+            patch("ccbot.session_monitor.list_account_homes", return_value=[]),
             patch("ccbot.session_monitor.tmux_manager") as mock_tmux,
             patch("ccbot.session.session_manager") as mock_sm,
         ):
@@ -221,3 +222,96 @@ class TestReadNewLinesOffsetRecovery:
             persist_session_map=True,
         )
         assert [message.text for message in messages] == ["Hi from Codex"]
+
+    @pytest.mark.asyncio
+    async def test_skips_external_transcript_auto_bind_when_account_homes_exist(
+        self, monitor, tmp_path
+    ):
+        """Do not bind unrelated ~/.codex history when ccbot account homes exist."""
+        jsonl_file = tmp_path / "default-codex" / "session-6.jsonl"
+        jsonl_file.parent.mkdir(parents=True)
+        entry = {
+            "timestamp": "2026-03-25T22:21:29.901Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "External hello"}],
+            },
+        }
+        jsonl_file.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+        account_home = tmp_path / "homes" / "plus1"
+        account_home.mkdir(parents=True)
+
+        monitor.scan_projects = AsyncMock(
+            return_value=[
+                SessionInfo(
+                    session_id="session-6",
+                    file_path=jsonl_file,
+                    cwd="/tmp/project",
+                )
+            ]
+        )
+        monitor.state.update_session(
+            TrackedSession(
+                session_id="session-6",
+                file_path=str(jsonl_file),
+                last_byte_offset=0,
+            )
+        )
+
+        with (
+            patch(
+                "ccbot.session_monitor.list_account_homes",
+                return_value=[account_home],
+            ),
+            patch("ccbot.session.session_manager") as mock_sm,
+        ):
+            mock_sm.has_bound_thread_for_session.return_value = False
+
+            messages = await monitor.check_for_updates(set())
+
+        mock_sm.register_session_to_window.assert_not_called()
+        assert [message.text for message in messages] == ["External hello"]
+
+    @pytest.mark.asyncio
+    async def test_skips_shell_windows_during_auto_bind(self, monitor, tmp_path):
+        """Do not auto-bind a transcript to a tmux window that fell back to zsh."""
+        jsonl_file = tmp_path / "homes" / "plus1" / "session-7.jsonl"
+        jsonl_file.parent.mkdir(parents=True)
+        jsonl_file.write_text("{}\n", encoding="utf-8")
+
+        state = SimpleNamespace(
+            session_id="",
+            cwd="/tmp/project",
+            window_name="project-1",
+        )
+
+        with (
+            patch("ccbot.session_monitor.list_account_homes", return_value=[]),
+            patch("ccbot.session_monitor.tmux_manager") as mock_tmux,
+        ):
+            mock_tmux.list_windows = AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        window_id="@1",
+                        cwd="/tmp/project",
+                        window_name="project-1",
+                        pane_current_command="zsh",
+                    )
+                ]
+            )
+            mock_sm = SimpleNamespace(
+                iter_thread_bindings=lambda: [(100, 1, "@1")],
+                get_window_state=lambda _wid: state,
+                register_session_to_window=AsyncMock(),
+            )
+
+            await monitor._auto_bind_session_to_window(
+                "session-7",
+                "/tmp/project",
+                mock_sm,
+                session_file=jsonl_file,
+            )
+
+        mock_sm.register_session_to_window.assert_not_called()

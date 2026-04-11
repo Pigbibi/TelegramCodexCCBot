@@ -13,9 +13,10 @@ from typing import Any, Awaitable, Callable
 
 import aiofiles
 
+from .account_manager import list_account_homes
 from .config import config
 from .monitor_state import MonitorState, TrackedSession
-from .session import _iter_transcript_roots, _session_ids_match
+from .session import _is_shell_pane_command, _iter_transcript_roots, _session_ids_match
 from .tmux_manager import tmux_manager
 from .transcript_parser import PendingToolInfo, TranscriptParser
 from .utils import read_cwd_from_jsonl
@@ -97,6 +98,29 @@ class SessionMonitor:
         if window_id.startswith("@") and window_id[1:].isdigit():
             return (int(window_id[1:]), window_id)
         return (10**9, window_id)
+
+    @staticmethod
+    def _is_account_home_transcript(file_path: Path) -> bool:
+        """Return whether a transcript lives under a ccbot account home."""
+        try:
+            resolved = file_path.resolve()
+        except OSError:
+            resolved = file_path
+        for account_home in list_account_homes():
+            try:
+                if resolved.is_relative_to(account_home.resolve()):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    @classmethod
+    def _can_auto_bind_transcript(cls, file_path: Path) -> bool:
+        """Avoid auto-binding unrelated local Codex history when accounts exist."""
+        account_homes = list_account_homes()
+        if not account_homes:
+            return True
+        return cls._is_account_home_transcript(file_path)
 
     async def _get_active_cwds(self) -> set[str]:
         """Get normalized cwds of all active tmux windows."""
@@ -245,8 +269,13 @@ class SessionMonitor:
         session_id: str,
         project_path: str,
         session_manager: Any,
+        *,
+        session_file: Path | None = None,
     ) -> None:
         """Bind one discovered session to at most one matching tmux window."""
+        if session_file and not self._can_auto_bind_transcript(session_file):
+            return
+
         normalized_project_path = self._normalize_path(project_path)
         if not normalized_project_path:
             return
@@ -261,6 +290,9 @@ class SessionMonitor:
             window
             for window in windows
             if self._normalize_path(window.cwd) == normalized_project_path
+            and not _is_shell_pane_command(
+                (getattr(window, "pane_current_command", "") or "").strip()
+            )
         ]
         if not matching_windows:
             return
@@ -350,6 +382,7 @@ class SessionMonitor:
                         session_info.session_id,
                         project_path,
                         session_manager,
+                        session_file=session_info.file_path,
                     )
 
                 try:

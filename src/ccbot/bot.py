@@ -1172,7 +1172,21 @@ async def _rotate_thread_after_usage_limit(
         window_name=created_wname,
         account_name=next_account,
     )
-    await session_manager.wait_for_session_map_entry(created_wid, timeout=5.0)
+    hook_ok = await session_manager.wait_for_session_map_entry(created_wid, timeout=20.0)
+    if not hook_ok:
+        await session_manager.remove_session_map_entry(created_wid)
+        session_manager.remove_window_state(created_wid)
+        await tmux_manager.kill_window(created_wid)
+        await safe_send(
+            context.bot,
+            session_manager.resolve_chat_id(user_id, thread_id),
+            "⚠️ This session hit its usage limit, but the replacement Codex "
+            "window did not become ready, so I did not forward your message. "
+            "Please send it again to start a fresh session.",
+            message_thread_id=thread_id,
+        )
+        return True
+
     session_manager.bind_thread(
         user_id,
         thread_id,
@@ -1473,10 +1487,35 @@ async def _create_and_bind_window(
         # a few seconds later during startup. Falling back to an immediate 0.1s
         # timeout makes first-message delivery race with Codex startup and can
         # leave a freshly created window bound before its session is discoverable.
-        hook_timeout = 15.0 if resume_session_id else 5.0
+        hook_timeout = 15.0 if resume_session_id else 20.0
         hook_ok = await session_manager.wait_for_session_map_entry(
             created_wid, timeout=hook_timeout
         )
+
+        if not resume_session_id and not hook_ok:
+            logger.warning(
+                "New Codex window %s (%s) did not become ready; removing it",
+                created_wid,
+                created_wname,
+            )
+            await session_manager.remove_session_map_entry(created_wid)
+            session_manager.remove_window_state(created_wid)
+            await tmux_manager.kill_window(created_wid)
+            if context.user_data is not None:
+                context.user_data.pop("_pending_thread_id", None)
+                context.user_data.pop("_pending_thread_text", None)
+            await safe_edit(
+                query,
+                f"⚠️ {message}\n\n"
+                "Codex did not become ready, so I did not bind this topic "
+                "or forward your message. Please try New Session again.",
+            )
+            if answer_callback:
+                try:
+                    await query.answer("Startup timed out")
+                except Exception:
+                    logger.debug("Callback query answer skipped: query expired")
+            return
 
         # --resume creates a new session_id in the hook, but messages continue
         # writing to the resumed session's JSONL file. Override window_state to

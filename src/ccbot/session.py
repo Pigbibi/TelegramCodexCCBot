@@ -42,6 +42,16 @@ from .utils import atomic_write_json, read_cwd_from_jsonl
 
 logger = logging.getLogger(__name__)
 
+_SHELL_PANE_COMMANDS = {"bash", "csh", "dash", "fish", "ksh", "sh", "tcsh", "zsh"}
+
+
+def _is_shell_pane_command(command: str) -> bool:
+    """Return True when a tmux pane is sitting at an interactive shell."""
+    if not command:
+        return False
+    return Path(command).name in _SHELL_PANE_COMMANDS
+
+
 _UUID_SUFFIX_RE = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
 )
@@ -1316,8 +1326,8 @@ class SessionManager:
         Provides encapsulated access to thread_bindings without exposing
         the internal data structure directly.
         """
-        for user_id, bindings in self.thread_bindings.items():
-            for thread_id, window_id in bindings.items():
+        for user_id, bindings in list(self.thread_bindings.items()):
+            for thread_id, window_id in list(bindings.items()):
                 yield user_id, thread_id, window_id
 
     @staticmethod
@@ -1418,6 +1428,13 @@ class SessionManager:
         window = await tmux_manager.find_window_by_id(window_id)
         if not window:
             return False, "Window not found (may have been closed)"
+        pane_cmd = (window.pane_current_command or "").strip()
+        if _is_shell_pane_command(pane_cmd):
+            return (
+                False,
+                "Window is not running Codex "
+                f"(current command: {pane_cmd}); please create or resume a session again",
+            )
         success = await tmux_manager.send_keys(window.window_id, text)
         if success:
             return True, f"Sent to {display}"
