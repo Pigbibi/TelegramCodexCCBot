@@ -3,6 +3,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
@@ -41,6 +43,55 @@ class SessionMapLoadingTests(unittest.IsolatedAsyncioTestCase):
             manager.window_states["@1"].session_id,
             "rollout-2026-04-03T17-59-47-019d52c8-d90d-7f72-9062-45cf0f71f97e",
         )
+
+    async def test_stale_session_map_cwd_does_not_overwrite_live_window(self) -> None:
+        manager = SessionManager()
+        manager.window_states = {
+            "@7": WindowState(
+                session_id="stale-session",
+                cwd="/tmp/memory",
+                window_name="Projects-3",
+            )
+        }
+
+        with tempfile.TemporaryDirectory(prefix="ccbot-session-map-") as tmpdir:
+            session_map_file = Path(tmpdir) / "session_map.json"
+            session_map_file.write_text(
+                json.dumps(
+                    {
+                        "ccbot:@7": {
+                            "session_id": "stale-session",
+                            "cwd": "/tmp/memory",
+                            "window_name": "Projects-3",
+                        }
+                    }
+                )
+            )
+
+            with (
+                patch.object(
+                    session_module.config, "session_map_file", session_map_file
+                ),
+                patch.object(session_module.config, "tmux_session_name", "ccbot"),
+                patch.object(
+                    session_module.tmux_manager,
+                    "list_windows",
+                    AsyncMock(
+                        return_value=[
+                            SimpleNamespace(
+                                window_id="@7",
+                                cwd="/tmp/project",
+                                window_name="Projects-3",
+                            )
+                        ]
+                    ),
+                ),
+            ):
+                await manager.load_session_map()
+
+        self.assertIn("@7", manager.window_states)
+        self.assertEqual(manager.window_states["@7"].session_id, "")
+        self.assertEqual(manager.window_states["@7"].cwd, "")
 
 
 if __name__ == "__main__":

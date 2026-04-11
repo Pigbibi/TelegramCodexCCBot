@@ -1,7 +1,9 @@
 """Unit tests for SessionMonitor JSONL reading and offset handling."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -138,3 +140,84 @@ class TestReadNewLinesOffsetRecovery:
         assert len(messages) == 1
         assert messages[0].content_type == "usage_limit"
         assert "usage limit" in messages[0].text.lower()
+
+    @pytest.mark.asyncio
+    async def test_rebinds_bound_window_with_stale_cwd(self, monitor, tmp_path):
+        """Rebind a topic window when session_map points at an old cwd."""
+        jsonl_file = tmp_path / "session.jsonl"
+        entry = {
+            "timestamp": "2026-03-25T22:21:29.901Z",
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Hi from Codex"}],
+            },
+        }
+        jsonl_file.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+        monitor.scan_projects = AsyncMock(
+            return_value=[
+                SessionInfo(
+                    session_id="session-5",
+                    file_path=jsonl_file,
+                    cwd="/tmp/project",
+                )
+            ]
+        )
+        monitor.state.update_session(
+            TrackedSession(
+                session_id="session-5",
+                file_path=str(jsonl_file),
+                last_byte_offset=0,
+            )
+        )
+
+        states = {
+            "@1": SimpleNamespace(
+                session_id="old-session",
+                cwd="/tmp/other",
+                window_name="project-1",
+            ),
+            "@2": SimpleNamespace(
+                session_id="other-session",
+                cwd="/tmp/project",
+                window_name="project-2",
+            ),
+        }
+
+        with (
+            patch("ccbot.session_monitor.tmux_manager") as mock_tmux,
+            patch("ccbot.session.session_manager") as mock_sm,
+        ):
+            mock_tmux.list_windows = AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        window_id="@1",
+                        cwd="/tmp/project",
+                        window_name="project-1",
+                    ),
+                    SimpleNamespace(
+                        window_id="@2",
+                        cwd="/tmp/project",
+                        window_name="project-2",
+                    ),
+                ]
+            )
+            mock_sm.iter_thread_bindings.return_value = [
+                (100, 1, "@1"),
+                (100, 2, "@2"),
+            ]
+            mock_sm.get_window_state.side_effect = lambda wid: states[wid]
+            mock_sm.has_bound_thread_for_session.return_value = False
+
+            messages = await monitor.check_for_updates(set())
+
+        mock_sm.register_session_to_window.assert_called_once_with(
+            "@1",
+            "session-5",
+            "/tmp/project",
+            window_name="project-1",
+            persist_session_map=True,
+        )
+        assert [message.text for message in messages] == ["Hi from Codex"]
