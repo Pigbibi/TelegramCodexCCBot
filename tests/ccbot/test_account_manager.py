@@ -67,7 +67,7 @@ def test_ensure_account_home_writes_update_check_before_tables(
     account_dir.mkdir(parents=True)
     (account_dir / "auth.json").write_text("{}", encoding="utf-8")
     (codex_dir / "config.toml").write_text(
-        '[notice]\nhide_full_access_warning = true\n',
+        "[notice]\nhide_full_access_warning = true\n",
         encoding="utf-8",
     )
 
@@ -78,7 +78,7 @@ def test_ensure_account_home_writes_update_check_before_tables(
     home = account_manager.ensure_account_home("plus1")
 
     assert (home / "config.toml").read_text(encoding="utf-8") == (
-        'check_for_update_on_startup = false\n\n'
-        '[notice]\n'
-        'hide_full_access_warning = true\n'
+        "check_for_update_on_startup = false\n\n"
+        "[notice]\n"
+        "hide_full_access_warning = true\n"
     )

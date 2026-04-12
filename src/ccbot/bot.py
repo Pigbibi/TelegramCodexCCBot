@@ -1172,7 +1172,9 @@ async def _rotate_thread_after_usage_limit(
         window_name=created_wname,
         account_name=next_account,
     )
-    hook_ok = await session_manager.wait_for_session_map_entry(created_wid, timeout=20.0)
+    hook_ok = await session_manager.wait_for_session_map_entry(
+        created_wid, timeout=20.0
+    )
     if not hook_ok:
         await session_manager.remove_session_map_entry(created_wid)
         session_manager.remove_window_state(created_wid)
