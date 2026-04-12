@@ -132,9 +132,7 @@ class _SendKeysDummyPane:
     def __init__(self) -> None:
         self.commands: list[tuple[str, bool, bool]] = []
 
-    def send_keys(
-        self, cmd: str, enter: bool = False, literal: bool = False
-    ) -> None:
+    def send_keys(self, cmd: str, enter: bool = False, literal: bool = False) -> None:
         self.commands.append((cmd, enter, literal))
 
 

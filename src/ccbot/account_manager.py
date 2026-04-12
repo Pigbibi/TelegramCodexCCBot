@@ -95,6 +95,47 @@ def _copy_if_different(source: Path, dest: Path) -> None:
     shutil.copy2(source, dest)
 
 
+def _disable_codex_update_prompt(config_file: Path) -> None:
+    """Ensure ccbot-managed Codex starts do not block on the update prompt."""
+    key = "check_for_update_on_startup"
+    desired = f"{key} = false"
+
+    if not config_file.exists():
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(f"{desired}\n", encoding="utf-8")
+        return
+
+    try:
+        text = config_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    lines = text.splitlines()
+    replaced = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.split("=", 1)[0].strip() == key:
+            lines[index] = desired
+            replaced = True
+            break
+
+    if not replaced:
+        insert_at = len(lines)
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith("["):
+                insert_at = index
+                break
+        lines.insert(insert_at, desired)
+        if insert_at < len(lines) - 1 and lines[insert_at + 1].strip():
+            lines.insert(insert_at + 1, "")
+
+    new_text = "\n".join(lines) + ("\n" if text.endswith("\n") or lines else "")
+    if new_text != text:
+        config_file.write_text(new_text, encoding="utf-8")
+
+
 def ensure_account_home(name: str) -> Path:
     """Ensure a dedicated CODEX_HOME exists for one saved snapshot."""
     snapshot_dir = SNAPSHOT_DIR / name
@@ -108,6 +149,7 @@ def ensure_account_home(name: str) -> Path:
         _copy_if_different(snapshot_auth, account_home / "auth.json")
     _copy_if_different(CODEX_DIR / "config.toml", account_home / "config.toml")
     _copy_if_different(CODEX_DIR / "hooks.json", account_home / "hooks.json")
+    _disable_codex_update_prompt(account_home / "config.toml")
 
     for child in ("memories", "tmp"):
         (account_home / child).mkdir(parents=True, exist_ok=True)

@@ -13,9 +13,10 @@ from typing import Any, Awaitable, Callable
 
 import aiofiles
 
+from .account_manager import list_account_homes
 from .config import config
 from .monitor_state import MonitorState, TrackedSession
-from .session import _iter_transcript_roots, _session_ids_match
+from .session import _is_shell_pane_command, _iter_transcript_roots, _session_ids_match
 from .tmux_manager import tmux_manager
 from .transcript_parser import PendingToolInfo, TranscriptParser
 from .utils import read_cwd_from_jsonl
@@ -29,6 +30,7 @@ class SessionInfo:
 
     session_id: str
     file_path: Path
+    cwd: str = ""
 
 
 @dataclass
@@ -96,6 +98,29 @@ class SessionMonitor:
         if window_id.startswith("@") and window_id[1:].isdigit():
             return (int(window_id[1:]), window_id)
         return (10**9, window_id)
+
+    @staticmethod
+    def _is_account_home_transcript(file_path: Path) -> bool:
+        """Return whether a transcript lives under a ccbot account home."""
+        try:
+            resolved = file_path.resolve()
+        except OSError:
+            resolved = file_path
+        for account_home in list_account_homes():
+            try:
+                if resolved.is_relative_to(account_home.resolve()):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    @classmethod
+    def _can_auto_bind_transcript(cls, file_path: Path) -> bool:
+        """Avoid auto-binding unrelated local Codex history when accounts exist."""
+        account_homes = list_account_homes()
+        if not account_homes:
+            return True
+        return cls._is_account_home_transcript(file_path)
 
     async def _get_active_cwds(self) -> set[str]:
         """Get normalized cwds of all active tmux windows."""
@@ -166,7 +191,9 @@ class SessionMonitor:
             if self._normalize_path(file_cwd) not in active_cwds:
                 continue
             sessions.append(
-                SessionInfo(session_id=jsonl_file.stem, file_path=jsonl_file)
+                SessionInfo(
+                    session_id=jsonl_file.stem, file_path=jsonl_file, cwd=file_cwd
+                )
             )
 
         sessions.sort(
@@ -242,8 +269,13 @@ class SessionMonitor:
         session_id: str,
         project_path: str,
         session_manager: Any,
+        *,
+        session_file: Path | None = None,
     ) -> None:
         """Bind one discovered session to at most one matching tmux window."""
+        if session_file and not self._can_auto_bind_transcript(session_file):
+            return
+
         normalized_project_path = self._normalize_path(project_path)
         if not normalized_project_path:
             return
@@ -258,6 +290,9 @@ class SessionMonitor:
             window
             for window in windows
             if self._normalize_path(window.cwd) == normalized_project_path
+            and not _is_shell_pane_command(
+                (getattr(window, "pane_current_command", "") or "").strip()
+            )
         ]
         if not matching_windows:
             return
@@ -280,6 +315,17 @@ class SessionMonitor:
                 if not session_manager.get_window_state(window.window_id).session_id
             ]
         if not candidate_windows:
+            stale_bound_windows = []
+            for window in matching_windows:
+                if window.window_id not in bound_window_ids:
+                    continue
+                state = session_manager.get_window_state(window.window_id)
+                if state.session_id and (
+                    self._normalize_path(state.cwd) != normalized_project_path
+                ):
+                    stale_bound_windows.append(window)
+            candidate_windows = stale_bound_windows
+        if not candidate_windows:
             return
 
         candidate = max(
@@ -297,6 +343,7 @@ class SessionMonitor:
             session_id,
             project_path,
             window_name=candidate.window_name,
+            persist_session_map=True,
         )
 
     async def check_for_updates(self, active_session_ids: set[str]) -> list[NewMessage]:
@@ -310,6 +357,7 @@ class SessionMonitor:
 
         for session_info in sessions:
             try:
+                project_path = session_info.cwd
                 tracked = self.state.get_session(session_info.session_id)
                 if tracked is None:
                     tracked = TrackedSession(
@@ -319,18 +367,23 @@ class SessionMonitor:
                     )
                     self.state.update_session(tracked)
 
-                    project_path = await asyncio.to_thread(
-                        read_cwd_from_jsonl,
-                        session_info.file_path,
-                    )
-                    if project_path:
-                        await self._auto_bind_session_to_window(
-                            session_info.session_id,
-                            project_path,
-                            session_manager,
+                    if not project_path:
+                        project_path = await asyncio.to_thread(
+                            read_cwd_from_jsonl,
+                            session_info.file_path,
                         )
                 elif tracked.file_path != str(session_info.file_path):
                     tracked.file_path = str(session_info.file_path)
+
+                if project_path and not session_manager.has_bound_thread_for_session(
+                    session_info.session_id
+                ):
+                    await self._auto_bind_session_to_window(
+                        session_info.session_id,
+                        project_path,
+                        session_manager,
+                        session_file=session_info.file_path,
+                    )
 
                 try:
                     stat_result = session_info.file_path.stat()

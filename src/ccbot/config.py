@@ -102,6 +102,12 @@ class Config:
             os.getenv("CCBOT_SHOW_TOOL_CALLS", "true").lower() != "false"
         )
 
+        # Show Codex sessions created outside ccbot in the Telegram resume picker.
+        # Keep this opt-in so local VSCode/CLI history does not clutter Telegram.
+        self.show_external_resume_sessions = (
+            os.getenv("CCBOT_SHOW_EXTERNAL_RESUME_SESSIONS", "").lower() == "true"
+        )
+
         # Show hidden (dot) directories in directory browser
         self.show_hidden_dirs = (
             os.getenv("CCBOT_SHOW_HIDDEN_DIRS", "").lower() == "true"

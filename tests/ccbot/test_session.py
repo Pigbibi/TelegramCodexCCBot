@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,6 +16,7 @@ from ccbot.session import SessionManager
 def mgr(monkeypatch) -> SessionManager:
     monkeypatch.setattr(SessionManager, "_load_state", lambda self: None)
     monkeypatch.setattr(SessionManager, "_save_state", lambda self: None)
+    monkeypatch.setattr(config, "show_external_resume_sessions", True)
     return SessionManager()
 
 
@@ -38,12 +40,47 @@ class TestThreadBindings:
         result = set(mgr.iter_thread_bindings())
         assert result == {(100, 1, "@1"), (100, 2, "@2"), (200, 3, "@3")}
 
-    def test_bind_thread_tracks_topic_managed_session(self, mgr: SessionManager) -> None:
+    def test_iter_thread_bindings_uses_snapshot(self, mgr: SessionManager) -> None:
+        mgr.bind_thread(100, 1, "@1")
+        seen = []
+        for user_id, thread_id, window_id in mgr.iter_thread_bindings():
+            seen.append((user_id, thread_id, window_id))
+            mgr.bind_thread(100, 2, "@2")
+
+        assert seen == [(100, 1, "@1")]
+
+    def test_bind_thread_tracks_topic_managed_session(
+        self, mgr: SessionManager
+    ) -> None:
         mgr.get_window_state("@1").session_id = "sid-1"
 
         mgr.bind_thread(100, 1, "@1")
 
         assert "sid-1" in mgr.topic_managed_session_ids
+
+
+class TestSendToWindow:
+    @pytest.mark.asyncio
+    async def test_rejects_shell_pane(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        find_window = AsyncMock(
+            return_value=SimpleNamespace(
+                window_id="@1",
+                pane_current_command="zsh",
+            )
+        )
+        send_keys = AsyncMock()
+        monkeypatch.setattr(
+            session_module.tmux_manager, "find_window_by_id", find_window
+        )
+        monkeypatch.setattr(session_module.tmux_manager, "send_keys", send_keys)
+
+        ok, message = await mgr.send_to_window("@1", "hi")
+
+        assert ok is False
+        assert "not running Codex" in message
+        send_keys.assert_not_awaited()
 
 
 class TestGroupChatId:
@@ -174,6 +211,41 @@ class TestWindowState:
         mgr.register_session_to_window("@1", "sid-1", "/tmp/project")
 
         assert "sid-1" in mgr.topic_managed_session_ids
+
+    def test_register_session_to_window_can_persist_session_map(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session_map_file = tmp_path / "session_map.json"
+        session_map_file.write_text(
+            json.dumps(
+                {
+                    "ccbot:@9": {
+                        "session_id": "other",
+                        "cwd": "/tmp/other",
+                        "window_name": "other",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(session_module.config, "session_map_file", session_map_file)
+        monkeypatch.setattr(session_module.config, "tmux_session_name", "ccbot")
+
+        mgr.register_session_to_window(
+            "@1",
+            "sid-1",
+            "/tmp/project",
+            window_name="project",
+            persist_session_map=True,
+        )
+
+        session_map = json.loads(session_map_file.read_text(encoding="utf-8"))
+        assert session_map["ccbot:@1"] == {
+            "session_id": "sid-1",
+            "cwd": "/tmp/project",
+            "window_name": "project",
+        }
+        assert "ccbot:@9" in session_map
 
 
 class TestHiddenSessions:
@@ -340,6 +412,33 @@ class TestHiddenSessions:
         get_session_direct.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_list_sessions_for_directory_skips_external_codex_sessions_by_default(
+        self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        codex_root = tmp_path / "codex"
+        archived_dir = codex_root / "archived_sessions"
+        archived_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(config, "codex_projects_path", codex_root)
+        monkeypatch.setattr(config, "show_external_resume_sessions", False)
+
+        session_file = archived_dir / "external-session.jsonl"
+        payload = [
+            {"cwd": str(project_dir)},
+            {"type": "summary", "summary": "External"},
+        ]
+        session_file.write_text(
+            "\n".join(json.dumps(item) for item in payload) + "\n",
+            encoding="utf-8",
+        )
+
+        sessions = await mgr.list_sessions_for_directory(str(project_dir))
+
+        assert sessions == []
+
+    @pytest.mark.asyncio
     async def test_list_sessions_for_directory_reads_rollout_user_preview(
         self, mgr: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -416,7 +515,9 @@ class TestHiddenSessions:
         )
 
         monkeypatch.setattr(config, "codex_projects_path", default_root)
-        monkeypatch.setattr(session_module, "list_account_homes", lambda: [account_home])
+        monkeypatch.setattr(
+            session_module, "list_account_homes", lambda: [account_home]
+        )
 
         sessions = await mgr.list_sessions_for_directory(str(project_dir))
 

@@ -42,6 +42,16 @@ from .utils import atomic_write_json, read_cwd_from_jsonl
 
 logger = logging.getLogger(__name__)
 
+_SHELL_PANE_COMMANDS = {"bash", "csh", "dash", "fish", "ksh", "sh", "tcsh", "zsh"}
+
+
+def _is_shell_pane_command(command: str) -> bool:
+    """Return True when a tmux pane is sitting at an interactive shell."""
+    if not command:
+        return False
+    return Path(command).name in _SHELL_PANE_COMMANDS
+
+
 _UUID_SUFFIX_RE = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
 )
@@ -82,6 +92,14 @@ def _session_ids_match(left: str, right: str) -> bool:
     return bool(
         left and right and _canonical_session_id(left) == _canonical_session_id(right)
     )
+
+
+def _normalize_path(path_str: str) -> str:
+    """Normalize cwd values for stable comparisons."""
+    try:
+        return str(Path(path_str).resolve())
+    except OSError:
+        return path_str
 
 
 def _extract_user_text(data: dict[str, Any]) -> str:
@@ -653,6 +671,14 @@ class SessionManager:
         prefix = f"{config.tmux_session_name}:"
         valid_wids: set[str] = set()
         changed = False
+        live_window_cwds: dict[str, str] = {}
+        try:
+            windows = await tmux_manager.list_windows()
+            live_window_cwds = {
+                window.window_id: _normalize_path(window.cwd) for window in windows
+            }
+        except Exception as exc:
+            logger.debug("Unable to validate session_map cwds against tmux: %s", exc)
 
         for key, info in session_map.items():
             # Only process entries for our tmux session
@@ -668,6 +694,25 @@ class SessionManager:
             if not new_sid:
                 continue
             state = self.get_window_state(window_id)
+            live_cwd = live_window_cwds.get(window_id)
+            if live_cwd and new_cwd and _normalize_path(new_cwd) != live_cwd:
+                logger.info(
+                    "Ignoring stale session_map entry for window_id %s: map cwd=%s, live cwd=%s",
+                    window_id,
+                    new_cwd,
+                    live_cwd,
+                )
+                if state.session_id == new_sid and state.cwd == new_cwd:
+                    state.session_id = ""
+                    state.cwd = ""
+                    state.usage_limit_exceeded = False
+                    changed = True
+                if new_wname:
+                    state.window_name = new_wname
+                    if self.window_display_names.get(window_id) != new_wname:
+                        self.window_display_names[window_id] = new_wname
+                        changed = True
+                continue
             if state.session_id != new_sid or state.cwd != new_cwd:
                 logger.info(
                     "Session map: window_id %s updated sid=%s, cwd=%s",
@@ -830,6 +875,17 @@ class SessionManager:
                 continue
         return False
 
+    def _is_external_resume_transcript(self, file_path: Path) -> bool:
+        """Return whether a transcript comes from the user's non-ccbot Codex history."""
+        if self._is_account_home_transcript(file_path):
+            return False
+        try:
+            resolved = file_path.resolve()
+            root = config.codex_projects_path.expanduser().resolve()
+            return resolved.is_relative_to(root)
+        except OSError:
+            return False
+
     def remove_window_state(self, window_id: str) -> None:
         """Remove all persisted state associated with a tmux window."""
         changed = False
@@ -878,6 +934,8 @@ class SessionManager:
         session_id: str,
         cwd: str,
         window_name: str = "",
+        *,
+        persist_session_map: bool = False,
     ) -> None:
         """Bind a discovered transcript session to an existing tmux window."""
         state = self.get_window_state(window_id)
@@ -893,12 +951,39 @@ class SessionManager:
             state.window_name = window_name
             self.window_display_names[window_id] = window_name
         self._save_state()
+        if persist_session_map:
+            self._save_session_map_entry(window_id, session_id, cwd, window_name)
         logger.info(
             "Registered session to window: window_id=%s session_id=%s cwd=%s",
             window_id,
             session_id,
             cwd,
         )
+
+    def _save_session_map_entry(
+        self,
+        window_id: str,
+        session_id: str,
+        cwd: str,
+        window_name: str = "",
+    ) -> None:
+        """Persist a corrected window->session entry back to session_map.json."""
+        session_map: dict[str, Any] = {}
+        if config.session_map_file.exists():
+            try:
+                session_map = json.loads(config.session_map_file.read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Failed to read session_map for update: %s", exc)
+                return
+
+        key = f"{config.tmux_session_name}:{window_id}"
+        session_map[key] = {
+            "session_id": session_id,
+            "cwd": cwd,
+            "window_name": window_name or self.get_display_name(window_id),
+        }
+        atomic_write_json(config.session_map_file, session_map)
+        logger.info("Updated session_map entry for window_id %s", window_id)
 
     @staticmethod
     def _encode_cwd(cwd: str) -> str:
@@ -1091,6 +1176,14 @@ class SessionManager:
             session_id = f.stem
             if self.is_session_hidden(session_id):
                 continue
+            if (
+                self._is_external_resume_transcript(f)
+                and not config.show_external_resume_sessions
+            ):
+                logger.debug(
+                    "Skipping external Codex transcript in resume picker: %s", f
+                )
+                continue
             if not self.has_bound_thread_for_session(session_id) and (
                 self.is_topic_managed_session(session_id)
                 or self._is_account_home_transcript(f)
@@ -1233,8 +1326,8 @@ class SessionManager:
         Provides encapsulated access to thread_bindings without exposing
         the internal data structure directly.
         """
-        for user_id, bindings in self.thread_bindings.items():
-            for thread_id, window_id in bindings.items():
+        for user_id, bindings in list(self.thread_bindings.items()):
+            for thread_id, window_id in list(bindings.items()):
                 yield user_id, thread_id, window_id
 
     @staticmethod
@@ -1335,6 +1428,13 @@ class SessionManager:
         window = await tmux_manager.find_window_by_id(window_id)
         if not window:
             return False, "Window not found (may have been closed)"
+        pane_cmd = (window.pane_current_command or "").strip()
+        if _is_shell_pane_command(pane_cmd):
+            return (
+                False,
+                "Window is not running Codex "
+                f"(current command: {pane_cmd}); please create or resume a session again",
+            )
         success = await tmux_manager.send_keys(window.window_id, text)
         if success:
             return True, f"Sent to {display}"
